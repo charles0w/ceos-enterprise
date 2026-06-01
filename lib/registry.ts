@@ -1,6 +1,7 @@
 import { sql } from '@vercel/postgres';
 import { kv } from '@vercel/kv';
 import { AGENTS } from './agents';
+import { getGrowthStats } from './growth';
 import type { AgentStatus, AgentWithStatus } from './types';
 
 const KV_PREFIX = 'agent:status:';
@@ -19,7 +20,18 @@ async function ensureTable() {
 }
 
 export async function getFleet(): Promise<AgentWithStatus[]> {
-  const statuses = await getAllStatuses();
+  const [statuses, growthStats] = await Promise.all([getAllStatuses(), getGrowthStats()]);
+
+  if (growthStats && growthStats.total > 0) {
+    const summary = `${growthStats.total} bizs scraped · ${growthStats.outreachSent} emails sent · ${growthStats.outreachReplied} replies · ${growthStats.closed} closed`;
+    statuses['growth'] = {
+      state: 'ok',
+      lastRun: growthStats.lastScrapedAt ?? new Date().toISOString(),
+      summary,
+      ok: true,
+    };
+  }
+
   return AGENTS.map((agent) => ({
     agent,
     status: statuses[agent.id] ?? null,
