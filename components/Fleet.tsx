@@ -5,10 +5,14 @@ import type { AgentWithStatus } from '@/lib/types';
 
 const REFRESH_MS = 15_000;
 
+function hasReport(status: AgentWithStatus['status']): boolean {
+  return status != null && status.state != null;
+}
+
 function dotColor(status: AgentWithStatus['status']) {
-  if (!status) return '#374151';
-  if (status.state === 'error') return '#ef4444';
-  if (status.state === 'warn') return '#eab308';
+  if (!hasReport(status)) return '#374151';
+  if (status!.state === 'error') return '#ef4444';
+  if (status!.state === 'warn') return '#eab308';
   return '#22c55e';
 }
 
@@ -35,8 +39,8 @@ export function Fleet({ initial }: { initial: AgentWithStatus[] }) {
     return () => clearInterval(id);
   }, []);
 
-  const reporting = fleet.filter((f) => f.status !== null).length;
-  const healthy = fleet.filter((f) => f.status?.ok).length;
+  const reporting = fleet.filter((f) => hasReport(f.status)).length;
+  const healthy = fleet.filter((f) => f.status?.ok === true).length;
 
   return (
     <>
@@ -79,7 +83,7 @@ export function Fleet({ initial }: { initial: AgentWithStatus[] }) {
           <div
             key={agent.id}
             style={{
-              border: `1px solid ${status ? (status.ok ? '#1a3a1a' : '#3a1a1a') : '#2a2a2a'}`,
+              border: `1px solid ${hasReport(status) ? (status!.ok ? '#1a3a1a' : '#3a1a1a') : '#2a2a2a'}`,
               borderRadius: 12,
               padding: 16,
               background: '#111',
@@ -99,8 +103,8 @@ export function Fleet({ initial }: { initial: AgentWithStatus[] }) {
                     boxShadow: status?.ok ? '0 0 6px #22c55e66' : undefined,
                   }}
                 />
-                <span style={{ color: status ? (status.ok ? '#22c55e' : '#ef4444') : '#555' }}>
-                  {status ? status.state : 'no report'}
+                <span style={{ color: hasReport(status) ? (status!.ok ? '#22c55e' : '#ef4444') : '#555' }}>
+                  {hasReport(status) ? status!.state : 'no report'}
                 </span>
               </span>
             </div>
@@ -131,7 +135,7 @@ export function Fleet({ initial }: { initial: AgentWithStatus[] }) {
             )}
 
             {/* Status */}
-            {status ? (
+            {hasReport(status) ? (
               <div
                 style={{
                   marginTop: 12,
@@ -139,9 +143,9 @@ export function Fleet({ initial }: { initial: AgentWithStatus[] }) {
                   borderTop: '1px solid #1f1f1f',
                 }}
               >
-                <p style={{ fontSize: 12, color: '#ccc', margin: '0 0 4px' }}>{status.summary}</p>
+                <p style={{ fontSize: 12, color: '#ccc', margin: '0 0 4px' }}>{status!.summary}</p>
                 <p style={{ color: '#444', fontSize: 11, margin: 0 }}>
-                  {relativeTime(status.lastRun)} · {agent.schedule}
+                  {relativeTime(status!.lastRun)} · {agent.schedule}
                 </p>
               </div>
             ) : (
