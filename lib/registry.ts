@@ -56,7 +56,7 @@ async function getAllStatuses(): Promise<Record<string, AgentStatus>> {
         return [a.id, s] as const;
       })
     );
-    return Object.fromEntries(entries.filter(([, v]) => v != null)) as Record<string, AgentStatus>;
+    return Object.fromEntries(entries.filter(([, v]) => v != null && v.state != null)) as Record<string, AgentStatus>;
   }
 }
 
