@@ -23,7 +23,7 @@ export async function getFleet(): Promise<AgentWithStatus[]> {
   const [statuses, growthStats] = await Promise.all([getAllStatuses(), getGrowthStats()]);
 
   if (growthStats && growthStats.total > 0) {
-    const summary = `${growthStats.total} bizs scraped · ${growthStats.outreachSent} emails sent · ${growthStats.outreachReplied} replies · ${growthStats.closed} closed`;
+    const summary = `${growthStats.total} scraped · ${growthStats.sitesBuilt} sites built · ${growthStats.outreachSent} emails sent · ${growthStats.outreachReplied} replies · ${growthStats.closed} closed`;
     statuses['growth'] = {
       state: 'ok',
       lastRun: growthStats.lastScrapedAt ?? new Date().toISOString(),

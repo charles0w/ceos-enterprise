@@ -144,9 +144,16 @@ export function Fleet({ initial }: { initial: AgentWithStatus[] }) {
                 }}
               >
                 <p style={{ fontSize: 12, color: '#ccc', margin: '0 0 4px' }}>{status!.summary}</p>
-                <p style={{ color: '#444', fontSize: 11, margin: 0 }}>
-                  {relativeTime(status!.lastRun)} · {agent.schedule}
-                </p>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                  <p style={{ color: '#444', fontSize: 11, margin: 0 }}>
+                    {relativeTime(status!.lastRun)} · {agent.schedule}
+                  </p>
+                  {agent.id === 'growth' && (
+                    <a href="/businesses" style={{ color: '#3b82f6', fontSize: 11, textDecoration: 'none' }}>
+                      pipeline →
+                    </a>
+                  )}
+                </div>
               </div>
             ) : (
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #1f1f1f' }}>
