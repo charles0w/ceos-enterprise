@@ -1,61 +1,117 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@vercel/postgres';
+import { createHmac } from 'crypto';
 
-// Resend inbound email webhook.
-// When a business replies to an outreach email, Resend POSTs here.
-// We match by the sender's email address → update outreach_replied_at in Neon.
+// Resend webhook handler.
+// Events handled:
+//   email.received  — business replied to outreach → mark replied in DB
+//   email.bounced   — our email bounced → mark bounced
+//   email.delivered — confirmed delivery (informational)
+
+function verifySignature(body: string, signature: string, secret: string): boolean {
+  if (!secret) return true; // skip verification if secret not configured
+  try {
+    const [ts, sig] = signature.split(',').reduce(
+      (acc, part) => {
+        const [k, v] = part.split('=');
+        if (k === 'ts') acc[0] = v;
+        if (k === 'svix-signature' || k === 'v1') acc[1] = v;
+        return acc;
+      },
+      ['', '']
+    );
+    const expected = createHmac('sha256', secret)
+      .update(`${ts}.${body}`)
+      .digest('hex');
+    return expected === sig;
+  } catch {
+    return true; // don't block on verify errors
+  }
+}
+
+async function handleEmailReceived(body: Record<string, unknown>) {
+  // Inbound reply: { from, to, subject, text, html }
+  const fromRaw = String(body.from ?? body.sender ?? '');
+  const subject = String(body.subject ?? '');
+
+  const match = fromRaw.match(/<([^>]+)>/) ?? fromRaw.match(/([^\s]+@[^\s]+)/);
+  const senderEmail = (match?.[1] ?? fromRaw).toLowerCase().trim();
+
+  if (!senderEmail || !senderEmail.includes('@')) return { matched: false };
+
+  const { rows } = await sql`
+    SELECT place_id, name, outreach_status
+    FROM businesses
+    WHERE LOWER(owner_email) = ${senderEmail}
+    LIMIT 1
+  `;
+  if (rows.length === 0) return { matched: false };
+
+  const biz = rows[0];
+  if (biz.outreach_status === 'closed') return { matched: true, skipped: 'closed' };
+
+  await sql`
+    UPDATE businesses
+    SET outreach_replied_at = now(),
+        outreach_status = 'replied',
+        updated_at = now()
+    WHERE place_id = ${biz.place_id}
+      AND outreach_replied_at IS NULL
+  `;
+  console.log(`[webhook] reply from ${biz.name} — "${subject}"`);
+  return { matched: true, business: biz.name };
+}
+
+async function handleEmailBounced(body: Record<string, unknown>) {
+  // Outbound bounce: data.to contains the recipient email
+  const data = (body.data ?? body) as Record<string, unknown>;
+  const toRaw = String(data.to ?? '');
+  if (!toRaw) return { matched: false };
+
+  const { rows } = await sql`
+    SELECT place_id, name FROM businesses
+    WHERE LOWER(owner_email) = ${toRaw.toLowerCase()}
+    LIMIT 1
+  `;
+  if (rows.length === 0) return { matched: false };
+
+  await sql`
+    UPDATE businesses
+    SET outreach_status = 'bounced', updated_at = now()
+    WHERE place_id = ${rows[0].place_id}
+  `;
+  console.log(`[webhook] bounce for ${rows[0].name}`);
+  return { matched: true, business: rows[0].name };
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const rawBody = await req.text();
+    const signature = req.headers.get('svix-signature') ?? req.headers.get('webhook-signature') ?? '';
+    const secret = process.env.RESEND_WEBHOOK_SECRET ?? '';
 
-    // Resend inbound payload: { from, to, subject, text, html, ... }
-    const fromRaw: string = body.from ?? '';
-    const subject: string = body.subject ?? '';
-
-    // Extract email address from "Name <email>" or bare "email"
-    const match = fromRaw.match(/<([^>]+)>/) ?? fromRaw.match(/([^\s]+@[^\s]+)/);
-    const senderEmail = (match?.[1] ?? fromRaw).toLowerCase().trim();
-
-    if (!senderEmail || !senderEmail.includes('@')) {
-      return NextResponse.json({ ok: false, reason: 'no valid sender email' }, { status: 400 });
+    if (signature && !verifySignature(rawBody, signature, secret)) {
+      return NextResponse.json({ ok: false, reason: 'invalid signature' }, { status: 401 });
     }
 
-    // Find the business that was sent outreach to this email address
-    const { rows } = await sql`
-      SELECT place_id, name, outreach_status
-      FROM businesses
-      WHERE LOWER(owner_email) = ${senderEmail}
-      LIMIT 1
-    `;
+    const body = JSON.parse(rawBody) as Record<string, unknown>;
+    const type = String(body.type ?? body.event ?? '');
 
-    if (rows.length === 0) {
-      // Not a business we emailed — could be spam, ignore
-      return NextResponse.json({ ok: true, matched: false });
+    let result: Record<string, unknown> = { matched: false };
+
+    if (type === 'email.received' || type === 'inbound.received') {
+      result = await handleEmailReceived(body.data ? (body.data as Record<string, unknown>) : body);
+    } else if (type === 'email.bounced' || type === 'email.delivery_failed') {
+      result = await handleEmailBounced(body);
+    }
+    // email.sent, email.delivered, email.opened, email.clicked — log only
+    else {
+      console.log(`[webhook] event: ${type}`);
     }
 
-    const biz = rows[0];
-
-    // Only update if not already marked as replied/closed
-    if (biz.outreach_status === 'closed') {
-      return NextResponse.json({ ok: true, matched: true, skipped: 'already closed' });
-    }
-
-    await sql`
-      UPDATE businesses
-      SET
-        outreach_replied_at = now(),
-        outreach_status = 'replied',
-        updated_at = now()
-      WHERE place_id = ${biz.place_id}
-        AND outreach_replied_at IS NULL
-    `;
-
-    console.log(`[reply-webhook] ${biz.name} replied — subject: "${subject}"`);
-
-    return NextResponse.json({ ok: true, matched: true, business: biz.name });
+    return NextResponse.json({ ok: true, type, ...result });
   } catch (err) {
-    console.error('[reply-webhook] error:', err);
+    console.error('[webhook] error:', err);
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }
 }
