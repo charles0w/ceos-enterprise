@@ -64,7 +64,7 @@ export default async function PortfolioPage() {
     <main style={{ maxWidth: 1100, margin: '0 auto', padding: 24 }}>
       {/* Nav */}
       <div style={{ marginBottom: 40 }}>
-        <a href="/" style={{ color: '#555', fontSize: 13, textDecoration: 'none' }}>← fleet</a>
+        <span style={{ color: '#555', fontSize: 13 }}>Berkeley Web Studio</span>
       </div>
 
       {/* Hero */}
