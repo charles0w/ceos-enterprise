@@ -1,8 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { sql } from '@vercel/postgres';
-import { BusinessTable } from '@/components/BusinessTable';
-import { CallQueue } from '@/components/CallQueue';
+import { BusinessPageTabs } from '@/components/BusinessPageTabs';
 
 interface Business {
   place_id: string;
@@ -82,33 +81,7 @@ export default async function BusinessesPage() {
         ))}
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '1px solid #1f1f1f' }}>
-        {[
-          { id: 'pipeline', label: 'Pipeline', count: counts.total },
-          { id: 'queue', label: '📞 Call Queue', count: businesses.filter(b => b.phone && !['not_interested','closed','phone_interested'].includes(b.outreach_status ?? '')).length },
-        ].map(tab => (
-          <a
-            key={tab.id}
-            href={`?tab=${tab.id}`}
-            style={{
-              padding: '8px 16px 10px', fontSize: 13, textDecoration: 'none',
-              color: '#555', borderBottom: '2px solid transparent',
-            }}
-          >
-            {tab.label}
-            <span style={{ marginLeft: 6, fontSize: 11, color: '#333' }}>{tab.count}</span>
-          </a>
-        ))}
-      </div>
-
-      <BusinessTable businesses={businesses} />
-      <div style={{ marginTop: 40, borderTop: '1px solid #111', paddingTop: 32 }}>
-        <h2 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 600, color: '#ccc' }}>
-          📞 Call Queue
-        </h2>
-        <CallQueue businesses={businesses} />
-      </div>
+      <BusinessPageTabs businesses={businesses} />
     </main>
   );
 }
