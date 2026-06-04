@@ -58,21 +58,21 @@ const TIERS = [
     ],
   },
   {
-    name: 'Pro',
-    price: '$49',
+    name: 'Growth',
+    price: '$400',
     sub: '/month',
     color: '#a78bfa',
     border: '#a78bfa',
-    badge: 'Best for growth',
+    badge: '★ Most revenue',
     features: [
-      'Everything in Custom',
-      'AI chat widget — answers FAQs 24/7',
-      'Online booking & appointment scheduling',
-      'Automated SMS & email reminders',
-      'Monthly content updates (new photos, specials)',
-      'Google review request automation',
-      'Visitor analytics dashboard',
-      'Priority support',
+      'I actively bring you new customers',
+      'AI chat converts site visitors to bookings 24/7',
+      'Online booking — no more missed calls',
+      'Automated reminders cut no-shows',
+      'Google review campaigns grow your rating',
+      'Monthly report: how many customers I drove',
+      'Social content & Google Business updates',
+      'Cancel anytime — no contracts',
     ],
   },
 ];
@@ -97,7 +97,7 @@ export default async function PortfolioPage() {
         </h1>
         <p style={{ color: '#888', fontSize: 16, maxWidth: 520, margin: '0 auto 32px' }}>
           Built from your real Google Maps photos and info. Live in 48 hours.
-          Own it outright, or upgrade to Pro for AI chat, online booking, and automated reminders.
+          Or let me actively bring you customers every month — bookings, reminders, reviews, and more.
         </p>
         <a
           href="mailto:charles_ow@berkeley.edu?subject=Website inquiry"
@@ -171,8 +171,8 @@ export default async function PortfolioPage() {
           ))}
         </div>
         <p style={{ color: '#555', fontSize: 12, marginTop: 12 }}>
-          Reply "basic", "custom", or "pro" to the intro email — I handle the rest.
-          Pro includes a one-time $599 setup fee for the custom build.
+          Reply "basic", "custom", or "growth" to the intro email — I handle the rest.
+          Growth plan includes a one-time $599 setup fee for the custom build.
         </p>
       </div>
 
