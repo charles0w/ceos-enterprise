@@ -30,6 +30,7 @@ const TIERS = [
   {
     name: 'Basic',
     price: '$299',
+    sub: 'one-time',
     color: '#555',
     border: '#2a2a2a',
     features: [
@@ -43,6 +44,7 @@ const TIERS = [
   {
     name: 'Custom',
     price: '$599',
+    sub: 'one-time',
     color: '#fff',
     border: '#fff',
     badge: 'Most popular',
@@ -53,6 +55,24 @@ const TIERS = [
       'Custom domain setup',
       'SEO basics + Google Analytics',
       '2 rounds of revisions',
+    ],
+  },
+  {
+    name: 'Pro',
+    price: '$49',
+    sub: '/month',
+    color: '#a78bfa',
+    border: '#a78bfa',
+    badge: 'Best for growth',
+    features: [
+      'Everything in Custom',
+      'AI chat widget — answers FAQs 24/7',
+      'Online booking & appointment scheduling',
+      'Automated SMS & email reminders',
+      'Monthly content updates (new photos, specials)',
+      'Google review request automation',
+      'Visitor analytics dashboard',
+      'Priority support',
     ],
   },
 ];
@@ -77,7 +97,7 @@ export default async function PortfolioPage() {
         </h1>
         <p style={{ color: '#888', fontSize: 16, maxWidth: 520, margin: '0 auto 32px' }}>
           Built from your real Google Maps photos and info. Live in 48 hours.
-          No recurring fees — you own it outright.
+          Own it outright, or upgrade to Pro for AI chat, online booking, and automated reminders.
         </p>
         <a
           href="mailto:charles_ow@berkeley.edu?subject=Website inquiry"
@@ -98,8 +118,11 @@ export default async function PortfolioPage() {
 
       {/* Pricing */}
       <div style={{ marginBottom: 64 }}>
-        <h2 style={{ fontSize: 20, marginBottom: 20, color: '#ccc' }}>Pricing</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, maxWidth: 640 }}>
+        <h2 style={{ fontSize: 20, marginBottom: 8, color: '#ccc' }}>Pricing</h2>
+        <p style={{ color: '#555', fontSize: 13, marginBottom: 20 }}>
+          Start with a one-time site. Upgrade to Pro anytime for bookings, AI chat, and more.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
           {TIERS.map((tier) => (
             <div
               key={tier.name}
@@ -107,7 +130,7 @@ export default async function PortfolioPage() {
                 border: `1px solid ${tier.border}`,
                 borderRadius: 12,
                 padding: '24px 20px',
-                background: '#111',
+                background: tier.name === 'Pro' ? 'linear-gradient(135deg, #0d0a1a, #111)' : '#111',
                 position: 'relative',
               }}
             >
@@ -130,8 +153,11 @@ export default async function PortfolioPage() {
               <div style={{ color: '#888', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
                 {tier.name}
               </div>
-              <div style={{ fontSize: 32, fontWeight: 700, color: tier.color, marginBottom: 16 }}>
-                {tier.price}
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 4 }}>
+                <span style={{ fontSize: 32, fontWeight: 700, color: tier.color, lineHeight: 1 }}>
+                  {tier.price}
+                </span>
+                <span style={{ fontSize: 13, color: '#555' }}>{(tier as { sub?: string }).sub}</span>
               </div>
               <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
                 {tier.features.map((f) => (
@@ -145,7 +171,8 @@ export default async function PortfolioPage() {
           ))}
         </div>
         <p style={{ color: '#555', fontSize: 12, marginTop: 12 }}>
-          Reply "basic" or "custom" to the intro email — I handle the rest.
+          Reply "basic", "custom", or "pro" to the intro email — I handle the rest.
+          Pro includes a one-time $599 setup fee for the custom build.
         </p>
       </div>
 
