@@ -2,6 +2,33 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@vercel/postgres';
 import { createHmac } from 'crypto';
 
+async function notifyDiscord(biz: { name: string; owner_email: string; demo_url: string | null; outreach_body_id: string | null }) {
+  const url = process.env.DISCORD_WEBHOOK_URL;
+  if (!url) return;
+  try {
+    const tier = biz.outreach_body_id?.toUpperCase() ?? 'V1';
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        embeds: [{
+          title: `💬 Reply from ${biz.name}`,
+          color: 0xa78bfa,
+          fields: [
+            { name: 'Email',    value: biz.owner_email,          inline: true  },
+            { name: 'Sequence', value: tier,                     inline: true  },
+            { name: 'Demo',     value: biz.demo_url ?? '—',      inline: false },
+          ],
+          footer: { text: 'berkeley-biz-websites · CEO OS' },
+          timestamp: new Date().toISOString(),
+        }],
+      }),
+    });
+  } catch (e) {
+    console.error('[discord]', e);
+  }
+}
+
 // Resend webhook handler.
 // Events handled:
 //   email.received  — business replied to outreach → mark replied in DB
@@ -30,7 +57,6 @@ function verifySignature(body: string, signature: string, secret: string): boole
 }
 
 async function handleEmailReceived(body: Record<string, unknown>) {
-  // Inbound reply: { from, to, subject, text, html }
   const fromRaw = String(body.from ?? body.sender ?? '');
   const subject = String(body.subject ?? '');
 
@@ -40,7 +66,7 @@ async function handleEmailReceived(body: Record<string, unknown>) {
   if (!senderEmail || !senderEmail.includes('@')) return { matched: false };
 
   const { rows } = await sql`
-    SELECT place_id, name, outreach_status
+    SELECT place_id, name, outreach_status, demo_url, outreach_body_id
     FROM businesses
     WHERE LOWER(owner_email) = ${senderEmail}
     LIMIT 1
@@ -58,7 +84,9 @@ async function handleEmailReceived(body: Record<string, unknown>) {
     WHERE place_id = ${biz.place_id}
       AND outreach_replied_at IS NULL
   `;
+
   console.log(`[webhook] reply from ${biz.name} — "${subject}"`);
+  await notifyDiscord({ name: biz.name, owner_email: senderEmail, demo_url: biz.demo_url, outreach_body_id: biz.outreach_body_id });
   return { matched: true, business: biz.name };
 }
 
