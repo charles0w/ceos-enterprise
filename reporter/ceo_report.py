@@ -21,17 +21,25 @@ through:
     report("finance", ok=True, summary="EOD recap done",
            eval_score=ev["score"], eval_summary=ev["summary"], eval_reliability=rel)
 
-Criteria reference lives in the vault eval KB: research/ai-evals/kb
-(llm-as-judge, pass-k-reliability, who-validates-the-validators).
+Criteria reference lives in the vault eval KB: research/ai-evals/kb and the
+per-agent rubrics in research/ai-evals/criteria.
 
 Required env vars (add to .env or GitHub Actions secrets):
     CEOS_REPORT_URL    https://ceos-enterprise.vercel.app/api/report
-    CEOS_REPORT_SECRET <value from Vercel project env vars>
+    CEOS_REPORT_SECRET <value from Vercel project env vars (= REPORT_SECRET)>
 
-Optional (for judge()):
-    EVAL_JUDGE_URL     OpenAI-compatible chat-completions endpoint
-    EVAL_JUDGE_KEY     API key for that endpoint
-    EVAL_JUDGE_MODEL   model name (default: gpt-4o-mini)
+judge() provider — pick ONE:
+    Anthropic (native):
+        ANTHROPIC_API_KEY   <key>
+        EVAL_JUDGE_MODEL    optional, default claude-haiku-4-5-20251001
+    OpenAI-compatible (OpenAI, Gemini OpenAI endpoint, Groq, ...):
+        EVAL_JUDGE_URL      e.g. https://api.openai.com/v1/chat/completions
+        EVAL_JUDGE_KEY      <key>
+        EVAL_JUDGE_MODEL    e.g. gpt-4o-mini
+    Force one explicitly with EVAL_JUDGE_PROVIDER = "anthropic" | "openai".
+
+> Rigor note (vault kb/judge-biases): judge with a DIFFERENT model family than the
+> one that generated the output, or self-preference bias inflates the score.
 """
 import os
 import re
@@ -45,9 +53,11 @@ from pathlib import Path
 REPORT_URL = os.environ.get("CEOS_REPORT_URL", "https://ceos-enterprise.vercel.app/api/report")
 REPORT_SECRET = os.environ.get("CEOS_REPORT_SECRET", "")
 
+JUDGE_PROVIDER = os.environ.get("EVAL_JUDGE_PROVIDER", "").lower()  # "anthropic" | "openai" | ""
 JUDGE_URL = os.environ.get("EVAL_JUDGE_URL", "")
 JUDGE_KEY = os.environ.get("EVAL_JUDGE_KEY", "")
-JUDGE_MODEL = os.environ.get("EVAL_JUDGE_MODEL", "gpt-4o-mini")
+JUDGE_MODEL = os.environ.get("EVAL_JUDGE_MODEL", "")
+ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 _REL_STORE = Path(os.environ.get("CEOS_EVAL_STORE", str(Path.home() / ".ceos_eval_reliability.json")))
 
@@ -108,29 +118,73 @@ def report(
     return False
 
 
-def judge(output: str, criteria: str, *, model: str | None = None) -> dict:
-    """LLM-as-a-judge: score `output` (0..1) against `criteria` with a rationale.
-
-    Returns {"score": float, "summary": str}. Falls back to {"score": None,
-    "summary": "..."} if no judge endpoint is configured.
-
-    NOTE on rigor (see vault kb/who-validates-the-validators): an unvalidated
-    judge is just a confident guess. Before trusting these scores, hand-grade a
-    sample and confirm the judge agrees. Watch for verbosity/position bias.
-    """
-    if not (JUDGE_URL and JUDGE_KEY):
-        return {"score": None, "summary": "judge not configured (set EVAL_JUDGE_URL/KEY)"}
-
-    prompt = (
+def _judge_prompt(output: str, criteria: str) -> str:
+    return (
         "You are a strict evaluation judge. Score the AGENT OUTPUT from 0.0 to 1.0 "
         "against the CRITERIA. Penalize unsupported claims and missing requirements. "
         "Do not reward length. Respond ONLY with compact JSON: "
         '{"score": <float 0..1>, "summary": "<one sentence>"}.\n\n'
         f"CRITERIA:\n{criteria}\n\nAGENT OUTPUT:\n{output}\n"
     )
+
+
+def _parse_judge(content: str) -> dict:
+    m = re.search(r"\{.*\}", content, re.DOTALL)
+    parsed = json.loads(m.group(0) if m else content)
+    return {"score": _clamp01(float(parsed["score"])), "summary": str(parsed.get("summary", "")).strip()}
+
+
+def judge(output: str, criteria: str, *, model: str | None = None) -> dict:
+    """LLM-as-a-judge: score `output` (0..1) against `criteria` with a rationale.
+
+    Auto-selects provider: Anthropic if ANTHROPIC_API_KEY is set, else an
+    OpenAI-compatible endpoint if EVAL_JUDGE_URL/KEY are set. Override with
+    EVAL_JUDGE_PROVIDER. Returns {"score": float|None, "summary": str}.
+
+    NOTE (vault kb/who-validates-the-validators): an unvalidated judge is just a
+    confident guess — hand-grade a sample and confirm agreement before trusting it.
+    """
+    provider = JUDGE_PROVIDER or ("anthropic" if ANTHROPIC_KEY else ("openai" if (JUDGE_URL and JUDGE_KEY) else ""))
+    if provider == "anthropic":
+        return _judge_anthropic(output, criteria, model)
+    if provider == "openai":
+        return _judge_openai(output, criteria, model)
+    return {"score": None, "summary": "judge not configured (set ANTHROPIC_API_KEY or EVAL_JUDGE_URL/KEY)"}
+
+
+def _judge_anthropic(output: str, criteria: str, model: str | None) -> dict:
+    if not ANTHROPIC_KEY:
+        return {"score": None, "summary": "ANTHROPIC_API_KEY not set"}
     body = json.dumps({
-        "model": model or JUDGE_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
+        "model": model or JUDGE_MODEL or "claude-haiku-4-5-20251001",
+        "max_tokens": 256,
+        "messages": [{"role": "user", "content": _judge_prompt(output, criteria)}],
+    }).encode()
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=body,
+        headers={
+            "content-type": "application/json",
+            "x-api-key": ANTHROPIC_KEY,
+            "anthropic-version": "2023-06-01",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode())
+        return _parse_judge(data["content"][0]["text"])
+    except Exception as e:
+        print(f"[ceo_report] anthropic judge failed: {e}")
+        return {"score": None, "summary": f"judge error: {e}"}
+
+
+def _judge_openai(output: str, criteria: str, model: str | None) -> dict:
+    if not (JUDGE_URL and JUDGE_KEY):
+        return {"score": None, "summary": "EVAL_JUDGE_URL/KEY not set"}
+    body = json.dumps({
+        "model": model or JUDGE_MODEL or "gpt-4o-mini",
+        "messages": [{"role": "user", "content": _judge_prompt(output, criteria)}],
         "temperature": 0,
     }).encode()
     req = urllib.request.Request(
@@ -142,21 +196,15 @@ def judge(output: str, criteria: str, *, model: str | None = None) -> dict:
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             content = json.loads(resp.read().decode())["choices"][0]["message"]["content"]
-        m = re.search(r"\{.*\}", content, re.DOTALL)
-        parsed = json.loads(m.group(0) if m else content)
-        return {"score": _clamp01(float(parsed["score"])), "summary": str(parsed.get("summary", "")).strip()}
+        return _parse_judge(content)
     except Exception as e:
-        print(f"[ceo_report] judge failed: {e}")
+        print(f"[ceo_report] openai judge failed: {e}")
         return {"score": None, "summary": f"judge error: {e}"}
 
 
 def track_reliability(agent_id: str, *, passed: bool, window: int = 8) -> float:
     """Record this run's pass/fail and return the recent pass-rate over the last
     `window` runs (a pass^k-style consistency proxy; see vault kb/pass-k-reliability).
-
-    pass^k in its strict form asks 'did ALL k runs pass' (0 or 1). This returns the
-    smoother fraction-passed, which is more legible on a dashboard while still
-    surfacing inconsistency: a capable-but-flaky agent trends below 1.0.
     """
     try:
         history = json.loads(_REL_STORE.read_text()) if _REL_STORE.exists() else {}
