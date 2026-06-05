@@ -14,9 +14,16 @@ async function ensureTable() {
       last_run TIMESTAMPTZ NOT NULL,
       summary TEXT NOT NULL,
       ok BOOLEAN NOT NULL,
+      eval_score REAL,
+      eval_reliability REAL,
+      eval_summary TEXT,
       updated_at TIMESTAMPTZ DEFAULT now()
     )
   `;
+  // Migration for tables created before the eval layer existed.
+  await sql`ALTER TABLE agent_status ADD COLUMN IF NOT EXISTS eval_score REAL`;
+  await sql`ALTER TABLE agent_status ADD COLUMN IF NOT EXISTS eval_reliability REAL`;
+  await sql`ALTER TABLE agent_status ADD COLUMN IF NOT EXISTS eval_summary TEXT`;
 }
 
 export async function getFleet(): Promise<AgentWithStatus[]> {
@@ -25,6 +32,7 @@ export async function getFleet(): Promise<AgentWithStatus[]> {
   if (growthStats && growthStats.total > 0) {
     const summary = `${growthStats.total} scraped · ${growthStats.sitesBuilt} sites built · ${growthStats.outreachSent} emails sent · ${growthStats.outreachReplied} replies · ${growthStats.closed} closed`;
     statuses['growth'] = {
+      ...statuses['growth'],
       state: 'ok',
       lastRun: growthStats.lastScrapedAt ?? new Date().toISOString(),
       summary,
@@ -45,7 +53,15 @@ async function getAllStatuses(): Promise<Record<string, AgentStatus>> {
     return Object.fromEntries(
       rows.map((r) => [
         r.id,
-        { state: r.state, lastRun: r.last_run, summary: r.summary, ok: r.ok } as AgentStatus,
+        {
+          state: r.state,
+          lastRun: r.last_run,
+          summary: r.summary,
+          ok: r.ok,
+          evalScore: r.eval_score ?? undefined,
+          evalReliability: r.eval_reliability ?? undefined,
+          evalSummary: r.eval_summary ?? undefined,
+        } as AgentStatus,
       ])
     );
   } catch {
@@ -64,13 +80,19 @@ export async function upsertStatus(agentId: string, status: AgentStatus): Promis
   try {
     await ensureTable();
     await sql`
-      INSERT INTO agent_status (id, state, last_run, summary, ok, updated_at)
-      VALUES (${agentId}, ${status.state}, ${status.lastRun}, ${status.summary}, ${status.ok}, now())
+      INSERT INTO agent_status (id, state, last_run, summary, ok, eval_score, eval_reliability, eval_summary, updated_at)
+      VALUES (
+        ${agentId}, ${status.state}, ${status.lastRun}, ${status.summary}, ${status.ok},
+        ${status.evalScore ?? null}, ${status.evalReliability ?? null}, ${status.evalSummary ?? null}, now()
+      )
       ON CONFLICT (id) DO UPDATE SET
         state = EXCLUDED.state,
         last_run = EXCLUDED.last_run,
         summary = EXCLUDED.summary,
         ok = EXCLUDED.ok,
+        eval_score = EXCLUDED.eval_score,
+        eval_reliability = EXCLUDED.eval_reliability,
+        eval_summary = EXCLUDED.eval_summary,
         updated_at = now()
     `;
   } catch {
