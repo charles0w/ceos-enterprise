@@ -18,6 +18,14 @@ export const AGENTS: Agent[] = [
     schedule: 'EOD recap 4pm PT',
   },
   {
+    id: 'lambos-trader',
+    name: 'Lambos Trader',
+    role: 'Discord-alert options copy-trading (paper)',
+    ownerRepo: 'lambos-trader',
+    skills: ['discord-ingest', 'ocr-parse', 'risk-sizing', 'paper-exec'],
+    schedule: 'paper trial · daily report 1:05pm PT',
+  },
+  {
     id: 'growth',
     name: 'Growth',
     role: 'Lead-gen and cold outreach',
