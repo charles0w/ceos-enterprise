@@ -26,3 +26,13 @@ export interface AgentWithStatus {
   agent: Agent;
   status: AgentStatus | null;
 }
+
+// ── Eval history (time-series, append-only) ──────────────────
+// eval_runs accumulates every scored run; this is the per-agent series the
+// dashboard charts and the cron rolls up. See lib/evals.ts.
+export interface AgentTrend {
+  agentId: string;
+  points: number[];      // chronological quality scores (0..1), oldest → newest
+  avg: number | null;
+  delta: number | null;  // recent-half avg minus older-half avg (drift signal)
+}
