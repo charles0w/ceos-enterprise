@@ -3,6 +3,7 @@ import { kv } from '@vercel/kv';
 import { AGENTS } from './agents';
 import { getGrowthStats } from './growth';
 import type { AgentStatus, AgentWithStatus } from './types';
+import { recordEvalRun } from './evals';
 
 const KV_PREFIX = 'agent:status:';
 
@@ -77,6 +78,8 @@ async function getAllStatuses(): Promise<Record<string, AgentStatus>> {
 }
 
 export async function upsertStatus(agentId: string, status: AgentStatus): Promise<void> {
+  // Append to time-series history (best-effort; never blocks the status write).
+  await recordEvalRun(agentId, status);
   try {
     await ensureTable();
     await sql`

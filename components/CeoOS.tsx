@@ -656,11 +656,83 @@ function QualityRow({ score, reliability, note }:
   );
 }
 
+// ── fleet quality (consolidated eval card) ────────────────────
+function FleetQuality({ fleet, trends }: {
+  fleet: AgentWithStatus[];
+  trends: Record<string, { points: number[]; delta: number | null }>;
+}) {
+  const scored = fleet.filter(a => a.status?.evalScore != null);
+  const avg = scored.length
+    ? scored.reduce((acc, a) => acc + (a.status!.evalScore as number), 0) / scored.length
+    : null;
+  const rows = fleet.filter(
+    a => a.status?.evalScore != null || (trends[a.agent.id]?.points?.length ?? 0) >= 2
+  );
+
+  return (
+    <section className="panel ticks rise" style={{ marginBottom: 22, animationDelay: '300ms' }}>
+      <PanelHead
+        title="Fleet quality"
+        right={
+          avg != null
+            ? <span className="mono tnum" style={{ fontSize: 12, color: qColor(avg) }}>avg {Math.round(avg * 100)}%</span>
+            : <span className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>awaiting first scores</span>
+        }
+      />
+      {rows.length === 0 ? (
+        <div style={{ padding: '18px 16px 22px', textAlign: 'center' }}>
+          <span className="mono" style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>
+            No eval data yet — agents appear here once they report a quality score.
+          </span>
+        </div>
+      ) : (
+        <div style={{ padding: '4px 16px 12px' }}>
+          {rows.map(aw => {
+            const cfg = AGENT_CFG[aw.agent.id] ?? { glyph: '○', accent: C.idle, uptime: null };
+            const score = aw.status?.evalScore ?? null;
+            const rel = aw.status?.evalReliability ?? null;
+            const tr = trends[aw.agent.id];
+            return (
+              <div key={aw.agent.id} style={{
+                display: 'flex', alignItems: 'center', gap: 12, padding: '9px 0',
+                borderBottom: '1px solid var(--line)',
+              }}>
+                <span style={{ color: cfg.accent, fontSize: 13, width: 16, flexShrink: 0 }}>{cfg.glyph}</span>
+                <span style={{ fontSize: 12.5, color: '#e6f1f4', width: 88, flexShrink: 0 }}>{aw.agent.name}</span>
+                <span className="mono tnum" style={{
+                  fontSize: 14, width: 46, flexShrink: 0,
+                  color: score != null ? qColor(score) : 'var(--txt-faint)',
+                }}>
+                  {score != null ? Math.round(score * 100) + '%' : '—'}
+                </span>
+                <span className="mono" style={{ fontSize: 10, color: 'var(--txt-mid)', width: 56, flexShrink: 0 }}>
+                  {rel != null ? 'rel ' + Math.round(rel * 100) + '%' : ''}
+                </span>
+                <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10 }}>
+                  {tr?.delta != null && (
+                    <span className="mono" style={{ fontSize: 10, color: tr.delta >= 0 ? C.green : C.red }}>
+                      {tr.delta >= 0 ? '▲' : '▼'} {Math.abs(Math.round(tr.delta * 100))}%
+                    </span>
+                  )}
+                  {tr && tr.points.length >= 2 && (
+                    <Sparkline data={tr.points} color={qColor(tr.points[tr.points.length - 1])} width={120} height={26} />
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ── agent card ────────────────────────────────────────────────
-function AgentCard({ aw, idx, growthStats }: {
+function AgentCard({ aw, idx, growthStats, trend }: {
   aw: AgentWithStatus;
   idx: number;
   growthStats: GrowthStats | null;
+  trend?: { points: number[]; delta: number | null };
 }) {
   const { agent, status } = aw;
   const cfg = AGENT_CFG[agent.id] ?? { glyph: '○', accent: C.idle, uptime: null };
@@ -764,6 +836,26 @@ function AgentCard({ aw, idx, growthStats }: {
           note={status?.evalSummary}
         />
 
+        {/* real quality trend from eval_runs history */}
+        {trend && trend.points.length >= 2 && (
+          <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span className="label" style={{ letterSpacing: '0.14em' }}>
+              quality trend
+              {trend.delta != null && (
+                <span style={{ marginLeft: 8, color: trend.delta >= 0 ? C.green : C.red }}>
+                  {trend.delta >= 0 ? '▲' : '▼'} {Math.abs(Math.round(trend.delta * 100))}%
+                </span>
+              )}
+            </span>
+            <Sparkline
+              data={trend.points}
+              color={qColor(trend.points[trend.points.length - 1])}
+              width={108}
+              height={28}
+            />
+          </div>
+        )}
+
         {/* metrics + sparkline */}
         {metrics.length > 0 && (
           <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, marginTop: 16 }}>
@@ -812,6 +904,7 @@ export function CeoOS({ initial, growthStats }: {
 }) {
   const [fleet, setFleet] = useState(initial);
   const [tick, setTick] = useState(0);
+  const [trends, setTrends] = useState<Record<string, { points: number[]; delta: number | null }>>({});
 
   useEffect(() => {
     const id = setInterval(async () => {
@@ -819,6 +912,24 @@ export function CeoOS({ initial, growthStats }: {
       if (res.ok) setFleet(await res.json());
       setTick(t => t + 1);
     }, REFRESH_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await fetch('/api/trends');
+        if (!res.ok) return;
+        const arr: { agentId: string; points: number[]; delta: number | null }[] = await res.json();
+        const map: Record<string, { points: number[]; delta: number | null }> = {};
+        for (const t of arr) map[t.agentId] = { points: t.points, delta: t.delta };
+        setTrends(map);
+      } catch {
+        /* trends are decorative; ignore fetch errors */
+      }
+    };
+    load();
+    const id = setInterval(load, REFRESH_MS);
     return () => clearInterval(id);
   }, []);
 
@@ -830,6 +941,7 @@ export function CeoOS({ initial, growthStats }: {
       <Header online={online} needAttention={needAttention} />
       <Hero fleet={fleet} growthStats={growthStats} />
       <VizStrip growthStats={growthStats} />
+      <FleetQuality fleet={fleet} trends={trends} />
 
       {/* agent grid */}
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14 }}>
@@ -840,7 +952,7 @@ export function CeoOS({ initial, growthStats }: {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 18 }}>
         {fleet.map((aw, i) => (
-          <AgentCard key={aw.agent.id} aw={aw} idx={i} growthStats={growthStats} />
+          <AgentCard key={aw.agent.id} aw={aw} idx={i} growthStats={growthStats} trend={trends[aw.agent.id]} />
         ))}
       </div>
 
