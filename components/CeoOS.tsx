@@ -500,6 +500,11 @@ function Hero({ fleet, growthStats }: { fleet: AgentWithStatus[]; growthStats: G
   const eventsVal  = useCountUp(1284, 1500);
   const leadsVal   = useCountUp(growthStats?.total ?? 133, 1400);
 
+  const scored = fleet.filter(a => a.status?.evalScore != null);
+  const avgQuality = scored.length
+    ? scored.reduce((acc, a) => acc + (a.status!.evalScore as number), 0) / scored.length
+    : null;
+
   const sparksAll = Object.values(SPARKS);
   const n = 24;
   const throughput = Array.from({ length: n }, (_, i) =>
@@ -530,6 +535,10 @@ function Hero({ fleet, growthStats }: { fleet: AgentWithStatus[]; growthStats: G
         <div style={{ display: 'flex', flexDirection: 'column', gap: 26, alignItems: 'flex-end' }}>
           <Kpi label="Events · 24h" value={fmtNum(eventsVal)} color="#eafcff" align="right" />
           <Kpi label="Pipeline leads" value={Math.round(leadsVal)} color={C.cyan} align="right" />
+          {avgQuality != null && (
+            <Kpi label="Avg quality" value={Math.round(avgQuality * 100)} suffix="%"
+              color={qColor(avgQuality)} align="right" />
+          )}
           <div style={{ textAlign: 'right' }}>
             <div className="label">Reporting</div>
             <div className="mono tnum" style={{ fontSize: 18, color: '#eafcff', marginTop: 5 }}>
@@ -608,6 +617,41 @@ function MetricCell({ m }: { m: MetricDef }) {
     <div>
       <div className="mono tnum" style={{ fontSize: 17, color: col, lineHeight: 1.1 }}>{display}</div>
       <div className="label" style={{ fontSize: 9, marginTop: 3, letterSpacing: '0.12em' }}>{m.label}</div>
+    </div>
+  );
+}
+
+// ── eval / quality (added by eval layer) ──────────────────────
+function qColor(v: number): string {
+  return v >= 0.8 ? C.green : v >= 0.6 ? C.amber : C.red;
+}
+
+function QualityRow({ score, reliability, note }:
+  { score?: number; reliability?: number; note?: string }) {
+  if (score == null && reliability == null) return null;
+  return (
+    <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span className="label" style={{ letterSpacing: '0.14em' }}>output quality</span>
+        <span style={{ display: 'inline-flex', gap: 9, alignItems: 'baseline' }}>
+          {score != null && (
+            <span className="mono tnum" style={{ fontSize: 13, color: qColor(score) }}>
+              {Math.round(score * 100)}<span style={{ fontSize: 10, color: 'var(--txt-dim)' }}>%</span>
+            </span>
+          )}
+          {reliability != null && (
+            <span className="mono" style={{ fontSize: 10, color: 'var(--txt-mid)' }}>
+              rel {Math.round(reliability * 100)}%
+            </span>
+          )}
+        </span>
+      </div>
+      {score != null && <ProgressBar value={score} color={qColor(score)} active={false} />}
+      {note && (
+        <span className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)', lineHeight: 1.4 }}>
+          ⚖ {note}
+        </span>
+      )}
     </div>
   );
 }
@@ -712,6 +756,13 @@ function AgentCard({ aw, idx, growthStats }: {
             </span>
           </div>
         )}
+
+        {/* output quality (eval layer) */}
+        <QualityRow
+          score={status?.evalScore}
+          reliability={status?.evalReliability}
+          note={status?.evalSummary}
+        />
 
         {/* metrics + sparkline */}
         {metrics.length > 0 && (
