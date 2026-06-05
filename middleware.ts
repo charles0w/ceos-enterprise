@@ -6,6 +6,8 @@ const PUBLIC_PREFIXES = [
   '/login',
   '/api/webhook',
   '/api/auth',
+  '/api/report',   // agents authenticate with x-report-secret, not a session cookie
+  '/api/cron',     // Vercel Cron authenticates with CRON_SECRET, not a session cookie
   '/_next',
   '/favicon',
 ];
