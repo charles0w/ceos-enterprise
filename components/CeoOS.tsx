@@ -656,6 +656,75 @@ function QualityRow({ score, reliability, note }:
   );
 }
 
+// ── trading eval loop (dedicated finance card) ────────────────
+function TradingEvalCard({ fleet }: { fleet: AgentWithStatus[] }) {
+  const fin = fleet.find(a => a.agent.id === 'finance');
+  const s = fin?.status;
+  if (!s || s.evalScore == null) return null;
+
+  const m = (s.evalSummary || '').match(/^\[([^\]]+)\]\s*/);
+  const tag = m ? m[1] : '';
+  const rationale = m ? (s.evalSummary as string).slice(m[0].length) : (s.evalSummary || '');
+  const independent = /cross-family judge/i.test(tag);
+  const judgeModel = independent ? tag.replace(/cross-family judge:\s*/i, '') : null;
+  const score = s.evalScore as number;
+  const badgeColor = independent ? C.green : C.amber;
+
+  return (
+    <section className="panel ticks rise" style={{ marginBottom: 22, animationDelay: '260ms' }}>
+      <PanelHead
+        title="Finance — Eval Loop"
+        right={<span className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>ai-trading-bot</span>}
+      />
+      <div style={{ padding: '14px 18px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ fontSize: 13.5, color: 'var(--txt)', lineHeight: 1.5 }}>{s.summary}</div>
+
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 28, flexWrap: 'wrap' }}>
+          <div>
+            <div className="label">Recap quality</div>
+            <div className="mono tnum" style={{ fontSize: 32, color: qColor(score), lineHeight: 1, marginTop: 4 }}>
+              {Math.round(score * 100)}<span style={{ fontSize: 14, color: 'var(--txt-dim)' }}>%</span>
+            </div>
+          </div>
+          <div>
+            <div className="label">Prediction reliability</div>
+            <div className="mono tnum" style={{
+              fontSize: 32, lineHeight: 1, marginTop: 4,
+              color: s.evalReliability != null ? qColor(s.evalReliability) : 'var(--txt-faint)',
+            }}>
+              {s.evalReliability != null ? Math.round(s.evalReliability * 100) + '%' : '—'}
+            </div>
+            {s.evalReliability == null && (
+              <div className="mono" style={{ fontSize: 9.5, color: 'var(--txt-faint)', marginTop: 3 }}>building history</div>
+            )}
+          </div>
+          <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+            <span className="mono" style={{
+              fontSize: 10, padding: '4px 10px', borderRadius: 99,
+              border: `1px solid ${badgeColor}44`, color: badgeColor, background: `${badgeColor}11`,
+            }}>
+              {independent ? `independently judged · ${judgeModel}` : 'self-judged (provisional)'}
+            </span>
+          </div>
+        </div>
+
+        {rationale && (
+          <div style={{
+            fontSize: 11.5, color: 'var(--txt-mid)', lineHeight: 1.5, fontStyle: 'italic',
+            borderLeft: `2px solid ${C.cyan}44`, paddingLeft: 11,
+          }}>
+            ⚖ {rationale}
+          </div>
+        )}
+
+        <div className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>
+          {s.lastRun ? `last run ${new Date(s.lastRun).toLocaleString()} · ` : ''}grounded on real prices (yfinance)
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ── fleet quality (consolidated eval card) ────────────────────
 function FleetQuality({ fleet, trends }: {
   fleet: AgentWithStatus[];
@@ -942,6 +1011,7 @@ export function CeoOS({ initial, growthStats }: {
       <Hero fleet={fleet} growthStats={growthStats} />
       <VizStrip growthStats={growthStats} />
       <FleetQuality fleet={fleet} trends={trends} />
+      <TradingEvalCard fleet={fleet} />
 
       {/* agent grid */}
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14 }}>
