@@ -7,6 +7,7 @@ const PUBLIC_PREFIXES = [
   '/api/webhook',
   '/api/auth',
   '/api/report',   // agents authenticate with x-report-secret, not a session cookie
+  '/api/memory',   // ai-memory vault<->DB sync authenticates with x-report-secret
   '/api/cron',     // Vercel Cron authenticates with CRON_SECRET, not a session cookie
   '/_next',
   '/favicon',
