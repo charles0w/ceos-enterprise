@@ -12,6 +12,8 @@ The human-facing graph is the Obsidian vault at:
 
 The deployed CEO can't read those local files, so they are synced into the Postgres `ai_memory` table (`lib/aiMemory.ts`) via `ai-memory/scripts/sync-db.mjs` → `POST /api/memory/sync` (guarded by `REPORT_SECRET`). The CEO's tools (`lib/ceo.ts`) read/append that table and `delegate_task` writes to `fleet_tasks`.
 
-**Required env**: `ANTHROPIC_API_KEY` (CEO), `REPORT_SECRET` (sync + status), `POSTGRES_URL` (auto on Vercel).
+Each CEO session is also auto-committed to the vault's GitHub repo via the Contents API (`lib/vaultGit.ts`), so every prompt is pushed to GitHub + updates `ai-memory/sessions/` without a local machine.
+
+**Required env**: `ANTHROPIC_API_KEY` (CEO), `REPORT_SECRET` (sync + status), `POSTGRES_URL` (auto on Vercel), `GITHUB_TOKEN` (fine-grained PAT, Contents:write on `obi-secondbrain` — enables the session auto-push).
 
 To pull context locally: `node /Users/charlesow/Desktop/obi-secondbrain/ai-memory/scripts/recall.mjs "<query>"`.

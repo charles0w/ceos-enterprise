@@ -1,4 +1,5 @@
 import { sql } from '@vercel/postgres';
+import { pushVaultFile } from './vaultGit';
 
 // Shared AI-memory store for the fleet's CEO orchestrator.
 //
@@ -119,7 +120,9 @@ export async function logCeoSession(prompt: string, reply: string): Promise<void
     const slug = `sessions/${day}`;
     const existing = await getMemory(slug);
     const header = `> [!summary] Log of prompts to the [[CEO Orchestrator]] on ${day} (UTC).`;
-    const base = existing?.body ?? `# CEO session — ${day}\n\n${header}\n`;
+    // body has no leading "# title" — the title column holds it; the vault file
+    // (DB sync and the GitHub push) prepend "# <title>" uniformly.
+    const base = existing?.body ?? `${header}\n`;
     const entry = `\n## ${time}\n\n**Prompt:** ${prompt.slice(0, 1000)}\n\n**CEO:** ${reply.slice(0, 1000)}\n`;
     await upsertMemory({
       slug,
@@ -211,4 +214,17 @@ export async function upsertMemory(
       source = EXCLUDED.source,
       updated_at = now()
   `;
+
+  // CEO-authored notes (session logs, append_memory learnings) are committed to
+  // the vault's GitHub repo so every session is pushed + updates ai-memory there.
+  // Best-effort: a missing GITHUB_TOKEN or API hiccup never breaks the chat.
+  if (source === 'ceo') {
+    const rel = note.slug.includes('/') ? note.slug : `learnings/${note.slug}`;
+    const file = `---\ntags: [${tags.join(', ')}]\nsource: ceo\n---\n\n# ${note.title}\n\n${note.body}\n`;
+    try {
+      await pushVaultFile(`ai-memory/${rel}.md`, file, `CEO: update ${note.slug}`);
+    } catch {
+      /* best-effort */
+    }
+  }
 }
