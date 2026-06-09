@@ -222,9 +222,11 @@ export async function upsertMemory(
     const rel = note.slug.includes('/') ? note.slug : `learnings/${note.slug}`;
     const file = `---\ntags: [${tags.join(', ')}]\nsource: ceo\n---\n\n# ${note.title}\n\n${note.body}\n`;
     try {
-      await pushVaultFile(`ai-memory/${rel}.md`, file, `CEO: update ${note.slug}`);
-    } catch {
-      /* best-effort */
+      const res = await pushVaultFile(`ai-memory/${rel}.md`, file, `CEO: update ${note.slug}`);
+      if (res.ok) console.log(`[vaultGit] pushed ai-memory/${rel}.md`);
+      else console.error(`[vaultGit] push FAILED for ai-memory/${rel}.md — ${res.error}`);
+    } catch (e) {
+      console.error('[vaultGit] push threw', String(e)); // best-effort; never breaks chat
     }
   }
 }
