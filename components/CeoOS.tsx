@@ -463,6 +463,11 @@ function Header({ online, needAttention }: { online: number; needAttention: numb
             border: `1px solid ${C.cyan}44`, borderRadius: 99, padding: '2px 9px',
             background: `${C.cyan}11`, whiteSpace: 'nowrap',
           }}>◉ ask the CEO →</a>
+          <a href="/graph" className="mono" style={{
+            fontSize: 10.5, color: C.violet, textDecoration: 'none',
+            border: `1px solid ${C.violet}44`, borderRadius: 99, padding: '2px 9px',
+            background: `${C.violet}11`, whiteSpace: 'nowrap',
+          }}>⬡ memory graph</a>
         </div>
         <h1 style={{
           margin: 0, fontFamily: 'var(--font-sans, var(--sans))',

@@ -94,6 +94,103 @@ export async function listMemory(kind?: string): Promise<Pick<MemoryNote, 'slug'
   }
 }
 
+// ── CEO session log ──────────────────────────────────────────────────────────
+// Every prompt to the CEO is recorded two ways: an append-only ceo_log row
+// (raw audit), and a rolling daily `sessions/<date>` note in ai_memory so the
+// prompts live in the graph (recallable, visible in the graph view, synced to
+// the vault under ai-memory/sessions/).
+
+export async function logCeoSession(prompt: string, reply: string): Promise<void> {
+  await ensureTable();
+  const now = new Date();
+  const day = now.toISOString().slice(0, 10);          // YYYY-MM-DD
+  const time = now.toISOString().slice(11, 16);         // HH:MM (UTC)
+  try {
+    await sql`
+      CREATE TABLE IF NOT EXISTS ceo_log (
+        id BIGSERIAL PRIMARY KEY,
+        prompt TEXT NOT NULL,
+        reply TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `;
+    await sql`INSERT INTO ceo_log (prompt, reply) VALUES (${prompt}, ${reply})`;
+
+    const slug = `sessions/${day}`;
+    const existing = await getMemory(slug);
+    const header = `> [!summary] Log of prompts to the [[CEO Orchestrator]] on ${day} (UTC).`;
+    const base = existing?.body ?? `# CEO session — ${day}\n\n${header}\n`;
+    const entry = `\n## ${time}\n\n**Prompt:** ${prompt.slice(0, 1000)}\n\n**CEO:** ${reply.slice(0, 1000)}\n`;
+    await upsertMemory({
+      slug,
+      title: `CEO session — ${day}`,
+      kind: 'session',
+      body: base + entry,
+      tags: ['ai-memory', 'session'],
+      links: ['CEO Orchestrator'],
+      source: 'ceo',
+    });
+  } catch {
+    // logging is best-effort; never block the chat response
+  }
+}
+
+// ── Graph data for the on-site visualization ─────────────────────────────────
+export interface GraphNode { id: string; title: string; kind: string; degree: number }
+export interface GraphLink { source: string; target: string }
+export interface GraphData { nodes: GraphNode[]; links: GraphLink[] }
+
+// Resolve a [[wikilink]] target (a title, a slug, or a path) to a node slug.
+function resolveTarget(target: string, byKey: Map<string, string>): string | null {
+  const t = target.trim();
+  const candidates = [
+    t.toLowerCase(),
+    t.split('/').pop()!.toLowerCase(),               // basename
+    t.replace(/^.*\//, '').replace(/\.md$/, '').toLowerCase(),
+  ];
+  for (const c of candidates) if (byKey.has(c)) return byKey.get(c)!;
+  return null;
+}
+
+export async function getGraph(): Promise<GraphData> {
+  await ensureTable();
+  try {
+    const { rows } = await sql`SELECT slug, title, kind, links FROM ai_memory`;
+    const byKey = new Map<string, string>();
+    for (const r of rows) {
+      const slug = String(r.slug);
+      byKey.set(slug.toLowerCase(), slug);
+      byKey.set(String(r.title).toLowerCase(), slug);
+      byKey.set(slug.split('/').pop()!.toLowerCase(), slug);
+    }
+    const degree = new Map<string, number>();
+    const seen = new Set<string>();
+    const links: GraphLink[] = [];
+    for (const r of rows) {
+      const from = String(r.slug);
+      for (const raw of ((r.links as string[]) ?? [])) {
+        const to = resolveTarget(raw, byKey);
+        if (!to || to === from) continue;
+        const key = from < to ? `${from}|${to}` : `${to}|${from}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        links.push({ source: from, target: to });
+        degree.set(from, (degree.get(from) ?? 0) + 1);
+        degree.set(to, (degree.get(to) ?? 0) + 1);
+      }
+    }
+    const nodes: GraphNode[] = rows.map((r) => ({
+      id: String(r.slug),
+      title: String(r.title),
+      kind: String(r.kind),
+      degree: degree.get(String(r.slug)) ?? 0,
+    }));
+    return { nodes, links };
+  } catch {
+    return { nodes: [], links: [] };
+  }
+}
+
 export async function upsertMemory(
   note: Pick<MemoryNote, 'slug' | 'title' | 'body'> & Partial<MemoryNote>
 ): Promise<void> {

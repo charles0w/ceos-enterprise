@@ -56,7 +56,8 @@ export function CeoChat() {
           <div style={{ fontSize: 17, fontWeight: 600, color: '#eef6f9' }}>CEO</div>
           <div className="mono" style={{ fontSize: 11, color: 'var(--txt-dim)' }}>fleet orchestrator · Opus 4.8 · vault-aware</div>
         </div>
-        <a href="/" className="mono" style={{ marginLeft: 'auto', fontSize: 11, color: C.cyan, textDecoration: 'none' }}>← dashboard</a>
+        <a href="/graph" className="mono" style={{ marginLeft: 'auto', fontSize: 11, color: C.violet, textDecoration: 'none' }}>⬡ memory graph</a>
+        <a href="/" className="mono" style={{ fontSize: 11, color: C.cyan, textDecoration: 'none' }}>← dashboard</a>
       </header>
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
