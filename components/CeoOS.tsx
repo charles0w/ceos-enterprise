@@ -458,6 +458,11 @@ function Header({ online, needAttention }: { online: number; needAttention: numb
           <span className="label" style={{ color: 'var(--txt-mid)', letterSpacing: '0.3em' }}>
             CEO OS · FLEET CONTROL
           </span>
+          <a href="/ceo" className="mono" style={{
+            marginLeft: 4, fontSize: 10.5, color: C.cyan, textDecoration: 'none',
+            border: `1px solid ${C.cyan}44`, borderRadius: 99, padding: '2px 9px',
+            background: `${C.cyan}11`, whiteSpace: 'nowrap',
+          }}>◉ ask the CEO →</a>
         </div>
         <h1 style={{
           margin: 0, fontFamily: 'var(--font-sans, var(--sans))',
