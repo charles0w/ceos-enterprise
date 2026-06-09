@@ -34,6 +34,14 @@ export const AGENTS: Agent[] = [
     schedule: 'daily outreach batch',
   },
   {
+    id: 'jobs',
+    name: 'Jobs',
+    role: 'Internship/job scraping, tailoring, submission tracking',
+    ownerRepo: 'ceos-jobs',
+    skills: ['scraping', 'resume-tailoring', 'submission', 'tracking'],
+    schedule: 'daily ingest + on-demand tailoring',
+  },
+  {
     id: 'social',
     name: 'Social',
     role: 'Manages social accounts, posting, trend scouting',

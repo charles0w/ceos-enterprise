@@ -2,6 +2,7 @@ import { sql } from '@vercel/postgres';
 import { kv } from '@vercel/kv';
 import { AGENTS } from './agents';
 import { getGrowthStats } from './growth';
+import { getJobStats } from './jobs';
 import type { AgentStatus, AgentWithStatus } from './types';
 import { recordEvalRun } from './evals';
 
@@ -28,7 +29,11 @@ async function ensureTable() {
 }
 
 export async function getFleet(): Promise<AgentWithStatus[]> {
-  const [statuses, growthStats] = await Promise.all([getAllStatuses(), getGrowthStats()]);
+  const [statuses, growthStats, jobStats] = await Promise.all([
+    getAllStatuses(),
+    getGrowthStats(),
+    getJobStats(),
+  ]);
 
   if (growthStats && growthStats.total > 0) {
     const summary = `${growthStats.total} scraped · ${growthStats.sitesBuilt} sites built · ${growthStats.outreachSent} emails sent · ${growthStats.outreachReplied} replies · ${growthStats.closed} closed`;
@@ -36,6 +41,17 @@ export async function getFleet(): Promise<AgentWithStatus[]> {
       ...statuses['growth'],
       state: 'ok',
       lastRun: growthStats.lastScrapedAt ?? new Date().toISOString(),
+      summary,
+      ok: true,
+    };
+  }
+
+  if (jobStats && jobStats.discovered > 0) {
+    const summary = `${jobStats.discovered} found · ${jobStats.tailored} tailored · ${jobStats.submitted} applied · ${jobStats.interviews} interviews · ${jobStats.offers} offers`;
+    statuses['jobs'] = {
+      ...statuses['jobs'],
+      state: 'ok',
+      lastRun: jobStats.lastActivityAt ?? new Date().toISOString(),
       summary,
       ok: true,
     };
