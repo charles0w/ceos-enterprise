@@ -41,6 +41,21 @@ interface PublishState {
   url?: string;
   error?: string;
 }
+interface SuggestData {
+  topic: string;
+  findings: { title: string; url?: string; takeaway: string }[];
+  hooks: string[];
+  captions: string[];
+  hashtags: string[];
+  editingTips: string[];
+  sources: { title: string; url: string }[];
+}
+interface SuggestState {
+  phase: 'idle' | 'loading' | 'done' | 'error';
+  data?: SuggestData;
+  error?: string;
+}
+const LS_SUGGEST = 'social-studio:suggestions';
 
 // ── helpers ───────────────────────────────────────────────────
 const fmtDur = (s: number | null | undefined) =>
@@ -77,6 +92,9 @@ export function SocialStudio() {
   const [refUrl, setRefUrl] = useState('');
   const [refNotes, setRefNotes] = useState('');
   const [storage, setStorage] = useState<{ usage: number; quota: number } | null>(null);
+  const [suggest, setSuggest] = useState<SuggestState>({ phase: 'idle' });
+  const [topicInput, setTopicInput] = useState('');
+  const [tagsCopied, setTagsCopied] = useState(false);
 
   const endRef = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -113,6 +131,10 @@ export function SocialStudio() {
         } catch { /* nothing cached */ }
       }
       setStorage(await storageEstimate());
+      try {
+        const cached = JSON.parse(localStorage.getItem(LS_SUGGEST) || 'null') as SuggestData | null;
+        if (cached) setSuggest({ phase: 'done', data: cached });
+      } catch { /* nothing cached */ }
     })();
   }, []);
 
@@ -329,6 +351,44 @@ export function SocialStudio() {
       setPublish({ phase: 'error', error: String(e instanceof Error ? e.message : e) });
     }
   }, [render.blob, render.fileName, render.size, publish.phase]);
+
+  // ── trend research ────────────────────────────────────────────
+  const runResearch = useCallback(async () => {
+    if (suggest.phase === 'loading') return;
+    setSuggest({ phase: 'loading' });
+    try {
+      const data = await api<SuggestData>('/api/social/suggest', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ topic: topicInput.trim() || undefined }),
+      });
+      setSuggest({ phase: 'done', data });
+      try { localStorage.setItem(LS_SUGGEST, JSON.stringify(data)); } catch { /* full */ }
+    } catch (e) {
+      setSuggest({ phase: 'error', error: String(e instanceof Error ? e.message : e) });
+    }
+  }, [suggest.phase, topicInput]);
+
+  const copyHashtags = useCallback(async () => {
+    const tags = suggest.data?.hashtags ?? [];
+    if (!tags.length) return;
+    try {
+      await navigator.clipboard.writeText(tags.join(' '));
+      setTagsCopied(true);
+      setTimeout(() => setTagsCopied(false), 1600);
+    } catch { setError('Clipboard blocked — select and copy the tags manually.'); }
+  }, [suggest.data]);
+
+  const briefEditor = useCallback(() => {
+    const d = suggest.data;
+    if (!d) return;
+    const brief = [
+      `Apply this research on "${d.topic}" to the cut:`,
+      d.hooks[0] ? `- Open with a hook like: "${d.hooks[0]}"` : '',
+      ...d.editingTips.slice(0, 3).map((t) => `- ${t}`),
+      d.captions[0] ? `- Caption style: ${d.captions[0]}` : '',
+    ].filter(Boolean).join('\n');
+    setInput(brief);
+  }, [suggest.data]);
 
   const totalDur = plan ? planDuration(plan) : 0;
 
@@ -647,6 +707,128 @@ export function SocialStudio() {
                 <div style={{ color: 'var(--txt-faint)', fontSize: 11.5 }}>Paste videos you want to emulate + a note on why. The editor uses them as style direction. For deeper analysis, add the file to the library and use “frames→chat”.</div>
               )}
             </div>
+          </section>
+
+          {/* suggestions / trend research */}
+          <section className="panel ticks" style={{ padding: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span className="label">Suggestions · trend research</span>
+              {suggest.phase === 'done' && suggest.data && (
+                <button onClick={briefEditor} className="mono" style={chipStyle(C.green)} title="compose a brief for the editor from this research">✦ brief editor</button>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: 7, marginTop: 10 }}>
+              <input value={topicInput} onChange={(e) => setTopicInput(e.target.value)}
+                placeholder="niche/topic (blank = infer from my content)"
+                onKeyDown={(e) => { if (e.key === 'Enter') runResearch(); }}
+                style={{ flex: 1, background: 'rgba(255,255,255,0.03)', color: '#eafcff', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 10px', fontSize: 12, outline: 'none' }} />
+              <button onClick={runResearch} disabled={suggest.phase === 'loading'} className="mono" style={btnStyle(suggest.phase === 'loading' ? 'var(--txt-faint)' : C.amber)}>
+                {suggest.phase === 'loading' ? '…' : '⌕ research'}
+              </button>
+            </div>
+
+            {suggest.phase === 'loading' && (
+              <div className="mono" style={{ fontSize: 11, color: C.amber, marginTop: 10 }}>searching what’s getting traction in your niche… (~20s)</div>
+            )}
+            {suggest.phase === 'error' && (
+              <div className="mono" style={{ fontSize: 11, color: C.red, marginTop: 10 }}>⚠ {suggest.error}</div>
+            )}
+
+            {suggest.phase === 'done' && suggest.data && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
+                <div className="mono" style={{ fontSize: 10.5, color: 'var(--txt-dim)' }}>niche: <span style={{ color: C.amber }}>{suggest.data.topic}</span></div>
+
+                {suggest.data.findings.length > 0 && (
+                  <div>
+                    <div className="label" style={{ fontSize: 9, marginBottom: 6 }}>What’s working</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {suggest.data.findings.map((f, i) => (
+                        <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '7px 9px', background: 'var(--panel-2)' }}>
+                          <div style={{ fontSize: 11.5, color: 'var(--txt)' }}>
+                            {f.url ? <a href={f.url} target="_blank" rel="noreferrer" style={{ color: C.cyan, textDecoration: 'none' }}>{f.title}</a> : f.title}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--txt-mid)', marginTop: 2 }}>{f.takeaway}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {suggest.data.hooks.length > 0 && (
+                  <div>
+                    <div className="label" style={{ fontSize: 9, marginBottom: 6 }}>Opening hooks</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      {suggest.data.hooks.map((h, i) => (
+                        <div key={i} style={{ display: 'flex', gap: 7, alignItems: 'flex-start' }}>
+                          <button className="mono" style={{ ...chipStyle(C.cyan), flexShrink: 0 }} title="send to editor"
+                            onClick={() => setInput(`Open the cut with this hook (captioned in the first 1.5s): "${h}"`)}>↪</button>
+                          <span style={{ fontSize: 11.5, color: 'var(--txt)' }}>“{h}”</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {suggest.data.captions.length > 0 && (
+                  <div>
+                    <div className="label" style={{ fontSize: 9, marginBottom: 6 }}>Caption ideas</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      {suggest.data.captions.map((c, i) => (
+                        <div key={i} style={{ display: 'flex', gap: 7, alignItems: 'flex-start' }}>
+                          <button className="mono" style={{ ...chipStyle(C.cyan), flexShrink: 0 }} title="send to editor"
+                            onClick={() => setInput(`Use this caption style in the cut: ${c}`)}>↪</button>
+                          <span style={{ fontSize: 11.5, color: 'var(--txt-mid)' }}>{c}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {suggest.data.editingTips.length > 0 && (
+                  <div>
+                    <div className="label" style={{ fontSize: 9, marginBottom: 6 }}>Editing techniques</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      {suggest.data.editingTips.map((t, i) => (
+                        <div key={i} style={{ display: 'flex', gap: 7, alignItems: 'flex-start' }}>
+                          <button className="mono" style={{ ...chipStyle(C.violet), flexShrink: 0 }} title="apply via editor"
+                            onClick={() => setInput(`Apply this technique to the plan: ${t}`)}>↪</button>
+                          <span style={{ fontSize: 11.5, color: 'var(--txt-mid)' }}>{t}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {suggest.data.hashtags.length > 0 && (
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span className="label" style={{ fontSize: 9 }}>Hashtags · for the post</span>
+                      <button onClick={copyHashtags} className="mono" style={chipStyle(tagsCopied ? C.green : C.cyan)}>{tagsCopied ? '✓ copied' : '⧉ copy all'}</button>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                      {suggest.data.hashtags.map((h, i) => (
+                        <span key={i} className="mono" style={{ fontSize: 10, color: C.cyan, border: `1px solid ${C.cyan}33`, borderRadius: 99, padding: '2px 8px', background: `${C.cyan}0a` }}>{h}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {suggest.data.sources.length > 0 && (
+                  <div className="mono" style={{ fontSize: 9.5, color: 'var(--txt-faint)', borderTop: '1px solid var(--line)', paddingTop: 8 }}>
+                    sources: {suggest.data.sources.map((s, i) => (
+                      <span key={i}>{i > 0 && ' · '}<a href={s.url} target="_blank" rel="noreferrer" style={{ color: 'var(--txt-dim)', textDecoration: 'none' }}>{s.title.slice(0, 40)}</a></span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {suggest.phase === 'idle' && (
+              <div style={{ color: 'var(--txt-faint)', fontSize: 11.5, marginTop: 10 }}>
+                Researches videos getting traction in your genre right now (live web search) and turns it into hooks, captions, hashtags and cut techniques. Leave the topic blank to infer from your library, plan and references.
+              </div>
+            )}
           </section>
         </div>
       </div>
