@@ -468,6 +468,11 @@ function Header({ online, needAttention }: { online: number; needAttention: numb
             border: `1px solid ${C.violet}44`, borderRadius: 99, padding: '2px 9px',
             background: `${C.violet}11`, whiteSpace: 'nowrap',
           }}>⬡ memory graph</a>
+          <a href="/social" className="mono" style={{
+            fontSize: 10.5, color: C.green, textDecoration: 'none',
+            border: `1px solid ${C.green}44`, borderRadius: 99, padding: '2px 9px',
+            background: `${C.green}11`, whiteSpace: 'nowrap',
+          }}>✂ social studio</a>
         </div>
         <h1 style={{
           margin: 0, fontFamily: 'var(--font-sans, var(--sans))',
