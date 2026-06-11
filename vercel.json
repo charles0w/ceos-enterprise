@@ -1,5 +1,6 @@
 {
   "crons": [
-    { "path": "/api/cron/eval-rollup", "schedule": "0 8 * * *" }
+    { "path": "/api/cron/eval-rollup", "schedule": "0 8 * * *" },
+    { "path": "/api/cron/trend-brief", "schedule": "0 16 * * 0" }
   ]
 }

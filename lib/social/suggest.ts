@@ -42,6 +42,18 @@ Process:
 
 Rules: hooks must be word-for-word usable, not descriptions of hooks. editingTips must be executable with cuts/speed/captions/music (no motion graphics). Valid JSON, double quotes, no trailing commas, no commentary after the block.`;
 
+// @ceo.0uch mode — the personal account runs on the instagram-trend-desk
+// editorial rubric (docs/AESTHETIC-RULES.md in that repo is canonical).
+// Generic growth output is a failure mode here, not a feature.
+const CEO0UCH_ADDENDUM = `
+
+ACCOUNT OVERRIDE — this research is for @ceo.0uch, a personal account in the Soft Tech / Ivy Gorp aesthetic (ALD / KITH / Stüssy / Our Legacy / Salomon / NB axis) with a "lifts and reads" POV (athletic build + literary tone, always implicit). The subtle-flex rules OVERRIDE the generic guidance above:
+- hooks: visual/framing ideas in deadpan voice — never verbal clickbait, never exclamation marks.
+- captions: lowercase deadpan — a time, a place, a single word, an obscure but correct reference. Never "love this fit", never emoji walls, never outfit breakdowns, never quoted literature.
+- hashtags: 0-3 maximum, lowercase, niche (no #ootd, no #fashion). An empty list is acceptable and often correct.
+- editingTips: calm pacing, negative space, intentionally-casual framing — no MrBeast-style cuts.
+- Research the tribe's upstream discourse (Blackbird Spyplane, Throwing Fits, r/malefashion) rather than generic "viral reels" content.`;
+
 function buildContext(opts: {
   topic?: string;
   plan: EditPlan | null;
@@ -112,6 +124,7 @@ function parseResult(text: string, fallbackTopic: string): Omit<SuggestResult, '
 
 export async function runSuggestions(opts: {
   topic?: string;
+  account?: 'client' | 'ceo0uch';
   plan: EditPlan | null;
   assets: SocialAssetRow[];
   references: SocialReferenceRow[];
@@ -134,7 +147,7 @@ export async function runSuggestions(opts: {
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 6000,
-    system: SYSTEM,
+    system: opts.account === 'ceo0uch' ? SYSTEM + CEO0UCH_ADDENDUM : SYSTEM,
     tools,
     messages: [{ role: 'user', content: `Research my niche and build the suggestion pack.\n\n${context}` }],
   });

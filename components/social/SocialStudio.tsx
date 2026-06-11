@@ -13,6 +13,7 @@ import { saveMedia, deleteMedia, hasMedia, getMedia, persistHint, storageEstimat
 import { probeFile, extractFrames } from '@/lib/social/probe';
 import { renderPlan, extractAudioDataUri, type RenderAssetMeta, type RenderProgress } from '@/lib/social/render';
 import { uploadToCloudinary } from '@/lib/social/cloudinary';
+import type { TrendBrief, BulletKind } from '@/lib/social/trendBrief';
 import { PanelHead, ProgressBar, StatusDot } from '../chrome';
 import { Nav, PageHeader } from '../Shell';
 
@@ -63,6 +64,19 @@ interface SuggestState {
   data?: SuggestData;
   error?: string;
 }
+interface BriefState {
+  phase: 'idle' | 'loading' | 'generating' | 'done' | 'error';
+  brief?: TrendBrief | null;
+  error?: string;
+}
+
+const BULLET_LABELS: Record<BulletKind, string> = {
+  heating: 'heating up',
+  steal: 'steal this look',
+  cooling: 'cooling',
+  hook: 'post hook',
+  mover: 'watchlist mover',
+};
 
 // ── helpers ───────────────────────────────────────────────────
 const fmtDur = (s: number | null | undefined) =>
@@ -109,7 +123,9 @@ export function SocialStudio() {
   const [storage, setStorage] = useState<{ usage: number; quota: number } | null>(null);
   const [suggest, setSuggest] = useState<SuggestState>({ phase: 'idle' });
   const [topicInput, setTopicInput] = useState('');
+  const [account, setAccount] = useState<'client' | 'ceo0uch'>('client');
   const [tagsCopied, setTagsCopied] = useState(false);
+  const [briefState, setBriefState] = useState<BriefState>({ phase: 'loading' });
 
   const endRef = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -152,6 +168,29 @@ export function SocialStudio() {
       } catch { /* nothing cached */ }
     })();
   }, []);
+
+  // ── the brief (trend desk) ────────────────────────────────────
+  useEffect(() => {
+    (async () => {
+      try {
+        const { brief } = await api<{ brief: TrendBrief | null }>('/api/social/brief');
+        setBriefState({ phase: brief ? 'done' : 'idle', brief });
+      } catch {
+        setBriefState({ phase: 'idle', brief: null });
+      }
+    })();
+  }, []);
+
+  const generateBrief = useCallback(async () => {
+    if (briefState.phase === 'generating') return;
+    setBriefState((s) => ({ ...s, phase: 'generating' }));
+    try {
+      const { brief } = await api<{ brief: TrendBrief }>('/api/social/brief', { method: 'POST' });
+      setBriefState({ phase: 'done', brief });
+    } catch (e) {
+      setBriefState((s) => ({ ...s, phase: 'error', error: String(e instanceof Error ? e.message : e) }));
+    }
+  }, [briefState.phase]);
 
   // ── persist plan + chat (debounced; localStorage mirror) ─────
   const persist = useCallback((nextPlan: EditPlan | null, nextMessages: Msg[]) => {
@@ -374,14 +413,14 @@ export function SocialStudio() {
     try {
       const data = await api<SuggestData>('/api/social/suggest', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ topic: topicInput.trim() || undefined }),
+        body: JSON.stringify({ topic: topicInput.trim() || undefined, account }),
       });
       setSuggest({ phase: 'done', data });
       try { localStorage.setItem(LS_SUGGEST, JSON.stringify(data)); } catch { /* full */ }
     } catch (e) {
       setSuggest({ phase: 'error', error: String(e instanceof Error ? e.message : e) });
     }
-  }, [suggest.phase, topicInput]);
+  }, [suggest.phase, topicInput, account]);
 
   const copyHashtags = useCallback(async () => {
     const tags = suggest.data?.hashtags ?? [];
@@ -594,8 +633,67 @@ export function SocialStudio() {
           </div>
         </section>
 
-        {/* ════ RAIL: PLAN · RENDER · REFERENCES · SUGGESTIONS ════ */}
+        {/* ════ RAIL: BRIEF · PLAN · RENDER · REFERENCES · SUGGESTIONS ════ */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: paneH, overflowY: 'auto' }}>
+
+          {/* the brief — trend desk for @ceo.0uch */}
+          <section className="panel edge rise" style={{ animationDelay: '120ms' }}>
+            <PanelHead title="The brief" right={
+              briefState.brief
+                ? <span className="mono tnum" style={{ fontSize: 10, color: 'var(--silver)' }}>{briefState.brief.briefDate} · @ceo.0uch</span>
+                : <span className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>trend desk</span>
+            } />
+            <div style={{ padding: '12px 14px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {briefState.phase === 'generating' && (
+                <span className="mono" style={{ fontSize: 11, color: 'var(--silver)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                  <StatusDot color="#d7dae2" pulse size={5} /> reading the upstream… (~1 min)
+                </span>
+              )}
+              {briefState.phase === 'error' && (
+                <div className="mono" style={{ fontSize: 11, color: 'var(--err)' }}>⚠ {briefState.error}</div>
+              )}
+
+              {briefState.brief ? (
+                <>
+                  {briefState.brief.bullets.map((b, i) => (
+                    <div key={i}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginBottom: 3 }}>
+                        <span className="label" style={{ fontSize: 9, color: b.kind === 'cooling' ? 'var(--txt-faint)' : 'var(--txt-dim)' }}>
+                          {BULLET_LABELS[b.kind]}
+                        </span>
+                        {(b.kind === 'steal' || b.kind === 'hook') && (
+                          <button className="mono" style={{ ...chip(), flexShrink: 0 }} title="send to the editor"
+                            onClick={() => setInput(b.kind === 'steal'
+                              ? `This week's shot from the brief — plan it with what's in my library if possible:\n${b.title} — ${b.body}`
+                              : `Use this caption/framing pattern from the brief: ${b.title} — ${b.body}`)}>↪</button>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 12.5, color: b.kind === 'cooling' ? 'var(--txt-mid)' : 'var(--white)', fontWeight: 600, lineHeight: 1.35 }}>{b.title}</div>
+                      <div style={{ fontSize: 11.5, color: 'var(--txt-mid)', lineHeight: 1.5, marginTop: 2 }}>{b.body}</div>
+                    </div>
+                  ))}
+                  {briefState.brief.sources.length > 0 && (
+                    <div className="mono" style={{ fontSize: 9.5, color: 'var(--txt-faint)', borderTop: '1px solid var(--line)', paddingTop: 8 }}>
+                      sources: {briefState.brief.sources.map((s, i) => (
+                        <span key={i}>{i > 0 && ' · '}<a href={s.url} target="_blank" rel="noreferrer" style={{ color: 'var(--txt-dim)' }}>{s.title.slice(0, 36)}</a></span>
+                      ))}
+                    </div>
+                  )}
+                  <button className="mono" onClick={generateBrief} disabled={briefState.phase === 'generating'}
+                    style={{ ...chip(), alignSelf: 'flex-start' }}>↻ regenerate</button>
+                </>
+              ) : briefState.phase !== 'generating' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div className="mono" style={{ color: 'var(--txt-faint)', fontSize: 10.5, lineHeight: 1.55 }}>
+                    five bullets for @ceo.0uch every sunday 9am — what’s heating up upstream (blackbird spyplane · throwing fits · r/malefashion), one shot to steal, one thing to skip. the gate: does a brief change what gets shot?
+                  </div>
+                  <button className="btn-chrome" onClick={generateBrief} style={{ padding: '8px 0' }}>
+                    Generate this week’s brief
+                  </button>
+                </div>
+              )}
+            </div>
+          </section>
 
           {/* edit plan */}
           <section className="panel rise" style={{ animationDelay: '140ms' }}>
@@ -759,9 +857,22 @@ export function SocialStudio() {
                 : <span className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>trend research</span>
             } />
             <div style={{ padding: '12px 14px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {/* voice toggle: client work gets generic growth research; the
+                  personal account runs on the trend-desk rubric */}
+              <div style={{ display: 'flex', gap: 6 }}>
+                {([['client', 'client work'], ['ceo0uch', '@ceo.0uch']] as const).map(([k, label]) => (
+                  <button key={k} onClick={() => setAccount(k)} className="mono" style={{
+                    flex: 1, padding: '6px 0', borderRadius: 8, fontSize: 10, letterSpacing: '0.08em',
+                    textTransform: 'lowercase', cursor: 'pointer',
+                    border: `1px solid ${account === k ? 'rgba(215,218,226,0.45)' : 'var(--line)'}`,
+                    background: account === k ? 'rgba(215,218,226,0.08)' : 'transparent',
+                    color: account === k ? 'var(--white)' : 'var(--txt-dim)',
+                  }}>{label}</button>
+                ))}
+              </div>
               <div style={{ display: 'flex', gap: 7 }}>
                 <input value={topicInput} onChange={(e) => setTopicInput(e.target.value)}
-                  placeholder="niche/topic (blank = infer from my content)"
+                  placeholder={account === 'ceo0uch' ? 'topic (blank = soft tech / ivy gorp)' : 'niche/topic (blank = infer from my content)'}
                   onKeyDown={(e) => { if (e.key === 'Enter') runResearch(); }}
                   className="field" style={{ flex: 1, fontSize: 12, padding: '7px 10px', borderRadius: 8 }} />
                 <button onClick={runResearch} disabled={suggest.phase === 'loading'} className="mono" style={chip(suggest.phase === 'loading' ? 'var(--txt-faint)' : 'var(--silver)')}>

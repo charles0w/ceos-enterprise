@@ -11,7 +11,7 @@ export const maxDuration = 60; // a few web searches + synthesis
 // fleet_session gate (token + web-search spend protected).
 
 export async function POST(req: NextRequest) {
-  let body: { topic?: string };
+  let body: { topic?: string; account?: string };
   try { body = await req.json(); } catch { body = {}; }
 
   try {
@@ -20,8 +20,12 @@ export async function POST(req: NextRequest) {
       listReferences().catch(() => []),
       getProject('studio-main').catch(() => null),
     ]);
+    const account = body.account === 'ceo0uch' ? 'ceo0uch' as const : 'client' as const;
     const result = await runSuggestions({
-      topic: typeof body.topic === 'string' ? body.topic.slice(0, 200) : undefined,
+      topic: typeof body.topic === 'string' && body.topic.trim()
+        ? body.topic.slice(0, 200)
+        : account === 'ceo0uch' ? 'soft tech / ivy gorp menswear (Aimé Leon Dore axis)' : undefined,
+      account,
       plan: (project?.plan ?? null) as EditPlan | null,
       assets,
       references,
