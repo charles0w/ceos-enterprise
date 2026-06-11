@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { sql } from '@vercel/postgres';
 import { upsertStatus } from '../registry';
+import { logEvent } from '../events';
 
 // ── The Brief — instagram-trend-desk, Phase 0.5 ───────────────
 // Sunday-morning 5-bullet trend brief for @ceo.0uch, generated with
@@ -186,6 +187,7 @@ export async function runWeeklyBrief(): Promise<TrendBrief> {
       { label: 'Sources', value: brief.sources.length },
     ],
   }).catch(() => { /* reporting is best-effort; the brief itself is saved */ });
+  await logEvent('social', 'ok', `sunday brief generated — ${heating?.title ?? '5 bullets'}`);
   return brief;
 }
 

@@ -12,6 +12,9 @@ const PUBLIC_PREFIXES = [
   '/api/cron',     // Vercel Cron authenticates with CRON_SECRET, not a session cookie
   '/_next',
   '/favicon',
+  '/icon',      // app icon (also used on the public login screen)
+  '/apple-icon',
+  '/manifest',  // home-screen install manifest
 ];
 
 export function middleware(req: NextRequest) {

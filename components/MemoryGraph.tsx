@@ -239,7 +239,7 @@ export function MemoryGraph() {
   const open = !!selectedId;
 
   return (
-    <div style={{ maxWidth: 1320, margin: '0 auto', padding: '30px 28px 40px', display: 'flex', flexDirection: 'column', minHeight: '100vh', width: '100%' }}>
+    <div className="page" style={{ maxWidth: 1320, margin: '0 auto', display: 'flex', flexDirection: 'column', minHeight: '100vh', width: '100%' }}>
       <PageHeader
         title="Memory graph."
         sub="Everything the fleet knows, linked. Click a node to read it — drag to rearrange, scroll to zoom."

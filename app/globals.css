@@ -216,3 +216,36 @@ a { color: var(--silver); text-decoration: none; }
 }
 .btn-chrome:hover { border-color: rgba(215,218,226,0.4); }
 .btn-chrome:disabled { color: var(--txt-faint); cursor: default; border-color: var(--line); background: rgba(255,255,255,0.02); }
+
+/* ---- responsive layout ---- */
+.page { padding: 30px 28px 60px; }
+.hero-grid {
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  align-items: stretch;
+  min-height: 250px;
+}
+.viz-strip {
+  display: grid;
+  grid-template-columns: minmax(0,1.15fr) minmax(0,1fr) minmax(0,1.2fr);
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.studio-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(340px, 1fr) minmax(260px, 320px);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1000px) {
+  .viz-strip { grid-template-columns: 1fr; }
+  .studio-grid { grid-template-columns: 1fr; }
+  /* viewport-pinned panes scroll the page instead on small screens */
+  .studio-pane { max-height: none !important; height: auto !important; min-height: 0 !important; }
+}
+
+@media (max-width: 860px) {
+  .page { padding: 20px 14px 48px; }
+  .hero-grid { grid-template-columns: 1fr; }
+}

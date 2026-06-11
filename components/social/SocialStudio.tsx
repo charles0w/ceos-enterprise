@@ -449,7 +449,7 @@ export function SocialStudio() {
 
   // ── layout ────────────────────────────────────────────────────
   return (
-    <div style={{ maxWidth: 1320, margin: '0 auto', padding: '30px 28px 50px', width: '100%' }}>
+    <div className="page" style={{ maxWidth: 1320, margin: '0 auto', width: '100%' }}>
       <PageHeader
         title="Social studio."
         sub="Drop content, prompt the cut, render in-browser. The editor agent plans; you direct."
@@ -462,11 +462,11 @@ export function SocialStudio() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 280px) minmax(340px, 1fr) minmax(260px, 320px)', gap: 16, alignItems: 'start' }}>
+      <div className="studio-grid">
 
         {/* ════ LIBRARY ════ */}
         <section
-          className="panel rise"
+          className="panel rise studio-pane"
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
           onDrop={(e) => { e.preventDefault(); setDragOver(false); ingestFiles(e.dataTransfer.files); }}
@@ -558,7 +558,7 @@ export function SocialStudio() {
         </section>
 
         {/* ════ EDITOR AGENT ════ */}
-        <section className="panel edge rise" style={{ display: 'flex', flexDirection: 'column', height: paneH, minHeight: 460, animationDelay: '80ms' }}>
+        <section className="panel edge rise studio-pane" style={{ display: 'flex', flexDirection: 'column', height: paneH, minHeight: 460, animationDelay: '80ms' }}>
           <PanelHead title="Editor agent" right={<span className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>prompt the cut · renders locally</span>} />
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '14px 14px 6px', display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -634,7 +634,7 @@ export function SocialStudio() {
         </section>
 
         {/* ════ RAIL: BRIEF · PLAN · RENDER · REFERENCES · SUGGESTIONS ════ */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: paneH, overflowY: 'auto' }}>
+        <div className="studio-pane" style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: paneH, overflowY: 'auto' }}>
 
           {/* the brief — trend desk for @ceo.0uch */}
           <section className="panel edge rise" style={{ animationDelay: '120ms' }}>

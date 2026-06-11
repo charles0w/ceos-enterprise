@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { upsertStatus } from '@/lib/registry';
 import { recordProfit } from '@/lib/garage';
+import { logEvent } from '@/lib/events';
 import type { AgentStatus, AgentMetric } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -52,7 +53,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'missing agentId or status' }, { status: 400 });
   }
 
-  await upsertStatus(body.agentId, sanitizeStatus(body.status));
+  const status = sanitizeStatus(body.status);
+  await upsertStatus(body.agentId, status);
+  await logEvent(
+    body.agentId,
+    status.state === 'error' ? 'err' : status.state === 'warn' ? 'warn' : 'ok',
+    status.summary,
+  );
 
   let profitRecorded = false;
   if (body.profit != null) {
@@ -60,7 +67,10 @@ export async function POST(req: NextRequest) {
     if (!Number.isFinite(amount) || amount === 0 || Math.abs(amount) > 1_000_000) {
       return NextResponse.json({ error: 'profit.amount must be a non-zero number (|amount| ≤ 1M)' }, { status: 400 });
     }
-    await recordProfit(body.agentId, amount, body.profit.note ? String(body.profit.note).slice(0, 200) : undefined);
+    const note = body.profit.note ? String(body.profit.note).slice(0, 200) : undefined;
+    await recordProfit(body.agentId, amount, note);
+    const sign = amount >= 0 ? '+' : '-';
+    await logEvent(body.agentId, 'ok', `profit realized — ${sign}$${Math.abs(amount).toFixed(2)}${note ? ` · ${note}` : ''}`);
     profitRecorded = true;
   }
 

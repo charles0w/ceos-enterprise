@@ -3,6 +3,7 @@ import { sql } from '@vercel/postgres';
 import { getFleet } from './registry';
 import { ensureTasksTable, getRecentTasks, updateTaskStatus, TASK_STATUSES, type TaskStatus } from './fleetTasks';
 import { recordProfit } from './garage';
+import { logEvent } from './events';
 import { AGENTS } from './agents';
 import { searchMemory, getMemory, listMemory, upsertMemory } from './aiMemory';
 
@@ -25,6 +26,14 @@ export interface CeoResult {
   reply: string;
   trace: CeoTrace[];
 }
+
+// Streamed to the chat client over SSE while the agentic loop runs.
+export type CeoStreamEvent =
+  | { type: 'text'; text: string }
+  | { type: 'tool_start'; tool: string; input: unknown }
+  | { type: 'tool_result'; tool: string; preview: string }
+  | { type: 'done'; reply: string; trace: CeoTrace[] }
+  | { type: 'error'; error: string };
 
 const SYSTEM = `You are the CEO — the head orchestrator of Charles's autonomous AI fleet, "CEO OS" (the ceos-enterprise dashboard). Charles is a technical UC Berkeley student running a fleet of AI agents, each owning a repo and a domain (Commerce, Finance, Lambos Trader, Growth, Jobs, Social, plus open School/Hobbies slots).
 
@@ -181,6 +190,7 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<st
         VALUES (${String(input.agentId)}, ${String(input.title)}, ${String(input.spec)})
         RETURNING id
       `;
+      await logEvent('ceo', 'info', `delegated to ${input.agentId} — ${String(input.title)}`);
       return `Delegated to '${input.agentId}' as task #${rows[0]?.id}: ${input.title}`;
     }
     case 'list_tasks': {
@@ -210,6 +220,7 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<st
       const id = Number(input.taskId);
       if (!Number.isFinite(id) || id <= 0) return 'Invalid taskId.';
       const found = await updateTaskStatus(id, status as TaskStatus);
+      if (found) await logEvent('ceo', 'info', `task #${id} → ${status}`);
       return found ? `Task #${id} → ${status}.` : `No task #${id} in the queue.`;
     }
     case 'record_profit': {
@@ -229,6 +240,7 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<st
       }
       const note = input.note ? String(input.note).slice(0, 200) : undefined;
       await recordProfit(agentId, Math.round(amount * 100) / 100, note);
+      await logEvent(agentId, 'ok', `profit realized — ${amount >= 0 ? '+' : '-'}$${Math.abs(amount).toFixed(2)}${note ? ` · ${note}` : ''} (via CEO)`);
       const sign = amount >= 0 ? '+' : '';
       return `Recorded ${sign}$${Math.abs(amount).toFixed(2)}${amount < 0 ? ' loss' : ''} for ${agentId} — The Garage ledger moved.`;
     }
@@ -247,16 +259,29 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<st
   }
 }
 
-export async function runCeo(messages: Anthropic.MessageParam[]): Promise<CeoResult> {
+// Run the agentic loop, emitting stream events as text and tool calls
+// happen. The accumulated reply (all turns' text, so the vault log matches
+// what the operator watched stream in) is also returned for logging.
+export async function runCeoStream(
+  messages: Anthropic.MessageParam[],
+  emit: (e: CeoStreamEvent) => void,
+): Promise<CeoResult> {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error('ANTHROPIC_API_KEY is not set on the server.');
   }
   const client = new Anthropic();
   const trace: CeoTrace[] = [];
   const convo: Anthropic.MessageParam[] = [...messages];
+  let reply = '';
+  const addText = (t: string) => {
+    if (!t) return;
+    const chunk = (reply && !reply.endsWith('\n') ? '\n\n' : '') + t;
+    reply += chunk;
+    emit({ type: 'text', text: chunk });
+  };
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const response = await client.messages.create({
+    const stream = client.messages.stream({
       model: MODEL,
       max_tokens: 16000,
       thinking: { type: 'adaptive' },
@@ -265,17 +290,25 @@ export async function runCeo(messages: Anthropic.MessageParam[]): Promise<CeoRes
       tools: TOOLS,
       messages: convo,
     });
+    let turnHadText = false;
+    stream.on('text', (delta) => {
+      // separator between turns is handled here so deltas stay verbatim
+      if (!turnHadText && reply && !reply.endsWith('\n')) {
+        reply += '\n\n';
+        emit({ type: 'text', text: '\n\n' });
+      }
+      turnHadText = true;
+      reply += delta;
+      emit({ type: 'text', text: delta });
+    });
+    const response = await stream.finalMessage();
 
     // Preserve the full assistant turn (incl. thinking + tool_use blocks).
     convo.push({ role: 'assistant', content: response.content });
 
     if (response.stop_reason !== 'tool_use') {
-      const reply = response.content
-        .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-        .map((b) => b.text)
-        .join('\n')
-        .trim();
-      return { reply: reply || '(no text reply)', trace };
+      if (!reply.trim()) addText('(no text reply)');
+      return { reply: reply.trim(), trace };
     }
 
     const toolUses = response.content.filter(
@@ -283,20 +316,25 @@ export async function runCeo(messages: Anthropic.MessageParam[]): Promise<CeoRes
     );
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const tu of toolUses) {
+      emit({ type: 'tool_start', tool: tu.name, input: tu.input });
       let out: string;
       try {
         out = await runTool(tu.name, (tu.input ?? {}) as Record<string, unknown>);
       } catch (err) {
         out = `Tool error: ${String(err)}`;
       }
-      trace.push({ tool: tu.name, input: tu.input, resultPreview: out.slice(0, 200) });
+      const preview = out.slice(0, 200);
+      trace.push({ tool: tu.name, input: tu.input, resultPreview: preview });
+      emit({ type: 'tool_result', tool: tu.name, preview });
       toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: out });
     }
     convo.push({ role: 'user', content: toolResults });
   }
 
-  return {
-    reply: "I've gathered context but hit the tool-iteration limit before finishing. Ask me to continue.",
-    trace,
-  };
+  addText("I've gathered context but hit the tool-iteration limit before finishing. Ask me to continue.");
+  return { reply: reply.trim(), trace };
+}
+
+export async function runCeo(messages: Anthropic.MessageParam[]): Promise<CeoResult> {
+  return runCeoStream(messages, () => { /* non-streaming caller */ });
 }

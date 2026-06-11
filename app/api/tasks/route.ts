@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getRecentTasks, updateTaskStatus, TASK_STATUSES, type TaskStatus } from '@/lib/fleetTasks';
+import { logEvent } from '@/lib/events';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,5 +50,6 @@ export async function PATCH(req: NextRequest) {
   }
   const found = await updateTaskStatus(id, body.status as TaskStatus);
   if (!found) return NextResponse.json({ error: `no task #${id}` }, { status: 404 });
+  await logEvent('fleet', 'info', `task #${id} → ${body.status}`);
   return NextResponse.json({ ok: true });
 }

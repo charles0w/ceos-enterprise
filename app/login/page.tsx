@@ -39,9 +39,10 @@ function LoginForm() {
         width: '100%', maxWidth: 360, padding: '0 24px',
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24,
       }}>
-        {/* wordmark */}
+        {/* wordmark — /icon.png, not /assets/* : the asset paths are
+            session-gated, and this screen renders pre-auth */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-          <ChromeIcon src="/assets/crown.png" size={28} radius={7} />
+          <ChromeIcon src="/icon.png" size={28} radius={7} />
           <span className="label" style={{ fontSize: 11, letterSpacing: '0.3em', color: 'var(--txt-mid)' }}>
             CEO&nbsp;OS
           </span>

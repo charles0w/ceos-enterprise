@@ -11,6 +11,7 @@ import type { GrowthStats } from '@/lib/growth';
 import type { JobStats } from '@/lib/jobs';
 import type { GarageData } from '@/lib/garage';
 import type { FleetTask } from '@/lib/fleetTasks';
+import type { EventFeed } from '@/lib/events';
 import {
   CHROME_GRAD, StatusDot, ChromeIcon, GlyphTile, Sparkline, ProgressBar,
   Kpi, PanelHead, useClock, useCountUp, useRotator, fmtMoney, fmtNum, greetingFor,
@@ -71,9 +72,6 @@ const SPARKS: Record<string, number[]> = {
   jobs:            spark(11, 24, 25, 12,  1.4),
   social:          spark(21, 24, 45, 16, -0.3),
 };
-const THROUGHPUT = Array.from({ length: 24 }, (_, i) =>
-  Object.values(SPARKS).reduce((sum, s) => sum + (s[i] || 0), 0)
-);
 
 // Live task blocks have no real percentage; derive a stable one per
 // run so the bar doesn't jump on every refresh.
@@ -102,35 +100,10 @@ const QUOTES = [
   'Six agents working while you sleep. Stay sharp while you’re awake.',
 ];
 
-// ── system log ────────────────────────────────────────────────
-const LOG_POOL = [
-  { a: 'commerce', sev: 'ok',   t: 'order #4821 fulfilled — $74.00' },
-  { a: 'growth',   sev: 'ok',   t: 'demo site generated → sunset-thai.berkeley.site' },
-  { a: 'finance',  sev: 'info', t: 'pulled 18 tickers · vol elevated on NVDA' },
-  { a: 'social',   sev: 'warn', t: 'IG rate limit hit — backing off 90s' },
-  { a: 'growth',   sev: 'ok',   t: 'cold-email queued → 24th St Cafe' },
-  { a: 'commerce', sev: 'ok',   t: 'sourced 6 new SKUs · margin ≥ 28%' },
-  { a: 'finance',  sev: 'info', t: 'portfolio marked — day P/L +1.8%' },
-  { a: 'growth',   sev: 'info', t: 'scraped 14 businesses · Berkeley · food' },
-  { a: 'social',   sev: 'ok',   t: 'trend detected — "matcha morning" +220%' },
-  { a: 'commerce', sev: 'ok',   t: 'card flip closed — PSA 10 Charizard +$310' },
-  { a: 'system',   sev: 'info', t: 'health sweep complete · 4/6 online' },
-  { a: 'growth',   sev: 'ok',   t: 'listing generated · 28 sites live' },
-  { a: 'finance',  sev: 'ok',   t: 'EOD recap scheduled · 4:00pm PT' },
-  { a: 'system',   sev: 'info', t: 'KV snapshot persisted' },
-  { a: 'commerce', sev: 'info', t: 'fulfillment loop tick · 14 in flight' },
-];
-
-interface LogLine { a: string; sev: string; t: string; ts: Date; key: string }
-
-function seedLog(now: number, count = 8): LogLine[] {
-  const out: LogLine[] = [];
-  for (let i = 0; i < count; i++) {
-    const item = LOG_POOL[(i * 5 + 2) % LOG_POOL.length];
-    out.push({ ...item, ts: new Date(now - i * 47000), key: 'seed' + i });
-  }
-  return out;
-}
+// ── system log (real fleet_events; see lib/events.ts) ─────────
+const SEV_COLOR: Record<string, string> = {
+  ok: 'var(--silver)', info: 'var(--silver)', warn: 'var(--gold)', err: 'var(--err)',
+};
 
 function qColor(v: number): string {
   return v >= 0.8 ? '#3fe08f' : v >= 0.6 ? '#f2c14e' : '#f25c5c';
@@ -184,28 +157,26 @@ function Header({ online, needEye }: { online: number; needEye: number }) {
 }
 
 // ── hero — the night garage ───────────────────────────────────
-function Hero({ fleet }: { fleet: AgentWithStatus[] }) {
+function Hero({ fleet, feed }: { fleet: AgentWithStatus[]; feed: EventFeed }) {
   const running = fleet.filter((a) => a.status?.summary).length;
   const ups = fleet
     .map((a) => AGENT_CFG[a.agent.id]?.uptime)
     .filter((u): u is number => u != null);
   const avgUp = ups.length ? ups.reduce((s, u) => s + u, 0) / ups.length : 0;
-  const events = useCountUp(1284, 1500);
-  const gmv = useCountUp(2840, 1500);
+  const events = useCountUp(feed.count24, 1500);
+  const profit = useCountUp(feed.profit24, 1500);
   const [quote, qi] = useRotator(QUOTES);
 
   return (
     <section className="panel edge rise" style={{ overflow: 'hidden', marginBottom: 20, background: '#050506' }}>
-      <div style={{
-        display: 'grid', gridTemplateColumns: '1.05fr 1fr', alignItems: 'stretch', minHeight: 250,
-      }}>
+      <div className="hero-grid">
         {/* left — numbers + the reminder */}
         <div style={{ padding: '28px 8px 24px 30px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', gap: 44, flexWrap: 'wrap' }}>
             <Kpi label="Running" value={running} />
             <Kpi label="Avg uptime" value={avgUp.toFixed(1)} suffix="%" />
             <Kpi label="Events · 24h" value={fmtNum(events)} />
-            <Kpi label="GMV today" value={fmtMoney(gmv)} />
+            <Kpi label="Profit · 24h" value={fmtMoney(profit)} />
           </div>
           {/* quiet reminder */}
           <div key={qi} style={{ marginTop: 'auto', paddingTop: 26, animation: 'quoteIn 0.9s ease both' }}>
@@ -231,13 +202,13 @@ function Hero({ fleet }: { fleet: AgentWithStatus[] }) {
           }}>it&rsquo;s waiting</div>
         </div>
       </div>
-      {/* throughput strip */}
+      {/* throughput strip — real fleet_events, hourly buckets */}
       <div style={{ padding: '12px 24px 18px', borderTop: '1px solid var(--line)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
           <span className="label">Throughput · 24h</span>
           <span className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>events/hr</span>
         </div>
-        <Throughput data={THROUGHPUT} height={58} />
+        <Throughput data={feed.hourly.length ? feed.hourly : [0, 0]} height={58} />
       </div>
     </section>
   );
@@ -350,22 +321,21 @@ function Funnel({ pipeline }: { pipeline: { scraped: number; sites: number; emai
   );
 }
 
-function LogFeed({ height = 236 }: { height?: number }) {
-  const [lines, setLines] = useState<LogLine[]>(() => seedLog(Date.now()));
-  const n = useRef(0);
-  useEffect(() => {
-    const id = setInterval(() => {
-      const item = LOG_POOL[Math.floor(Math.random() * LOG_POOL.length)];
-      n.current++;
-      setLines((prev) => [{ ...item, ts: new Date(), key: 'l' + Date.now() + n.current }, ...prev].slice(0, 14));
-    }, 2600);
-    return () => clearInterval(id);
-  }, []);
-  const fmt = (d: Date) => d.toTimeString().slice(0, 8);
+function LogFeed({ feed, height = 236 }: { feed: EventFeed; height?: number }) {
+  const fmt = (iso: string) => new Date(iso).toTimeString().slice(0, 8);
+  if (!feed.events.length) {
+    return (
+      <div style={{ height, display: 'grid', placeItems: 'center', padding: '0 14px' }}>
+        <span className="mono" style={{ fontSize: 10.5, color: 'var(--txt-faint)', textAlign: 'center', lineHeight: 1.6 }}>
+          quiet — events appear as agents report,<br />the CEO delegates, and profit lands
+        </span>
+      </div>
+    );
+  }
   return (
     <div style={{ height, overflow: 'hidden', padding: '6px 14px 14px', maskImage: 'linear-gradient(180deg,#000 86%,transparent)', WebkitMaskImage: 'linear-gradient(180deg,#000 86%,transparent)' }}>
-      {lines.map((l, i) => (
-        <div key={l.key} style={{
+      {feed.events.map((l, i) => (
+        <div key={l.ts + i} style={{
           display: 'flex', gap: 9, alignItems: 'baseline', padding: '4.5px 0',
           fontFamily: 'var(--mono)', fontSize: 11.5, lineHeight: 1.35,
           opacity: i === 0 ? 1 : Math.max(0.35, 1 - i * 0.055),
@@ -373,18 +343,18 @@ function LogFeed({ height = 236 }: { height?: number }) {
         }}>
           <span suppressHydrationWarning style={{ color: 'var(--txt-faint)', flexShrink: 0 }}>{fmt(l.ts)}</span>
           <span style={{
-            color: l.sev === 'warn' ? 'var(--gold)' : 'var(--silver)', flexShrink: 0,
+            color: l.sev === 'warn' ? 'var(--gold)' : l.sev === 'err' ? 'var(--err)' : 'var(--silver)', flexShrink: 0,
             textTransform: 'uppercase', fontSize: 9, letterSpacing: '0.08em', width: 62, paddingTop: 1,
-            opacity: 0.85,
-          }}>{l.a}</span>
-          <span style={{ color: l.sev === 'warn' ? 'var(--gold)' : 'var(--txt)', flex: 1 }}>{l.t}</span>
+            opacity: 0.85, overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>{l.agentId}</span>
+          <span style={{ color: SEV_COLOR[l.sev] === 'var(--silver)' ? 'var(--txt)' : SEV_COLOR[l.sev], flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.message}</span>
         </div>
       ))}
     </div>
   );
 }
 
-function VizStrip({ growthStats, garage }: { growthStats: GrowthStats | null; garage: GarageData | null }) {
+function VizStrip({ growthStats, garage, feed }: { growthStats: GrowthStats | null; garage: GarageData | null; feed: EventFeed }) {
   const pipeline = {
     scraped: growthStats?.total ?? 0,
     sites:   growthStats?.sitesBuilt ?? 0,
@@ -393,10 +363,7 @@ function VizStrip({ growthStats, garage }: { growthStats: GrowthStats | null; ga
     closed:  growthStats?.closed ?? 0,
   };
   return (
-    <div id="pipeline" style={{
-      display: 'grid', gridTemplateColumns: 'minmax(0,1.15fr) minmax(0,1fr) minmax(0,1.2fr)',
-      gap: 16, marginBottom: 20,
-    }}>
+    <div id="pipeline" className="viz-strip">
       <section className="panel rise" style={{ animationDelay: '100ms' }}>
         <PanelHead title="The garage" right={
           garage
@@ -411,7 +378,7 @@ function VizStrip({ growthStats, garage }: { growthStats: GrowthStats | null; ga
       </section>
       <section className="panel rise" style={{ animationDelay: '220ms' }}>
         <PanelHead title="System log" right={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><StatusDot color="#3fe08f" pulse size={6} /><span className="mono" style={{ fontSize: 10, color: 'var(--silver)' }}>live</span></span>} />
-        <LogFeed />
+        <LogFeed feed={feed} />
       </section>
     </div>
   );
@@ -878,15 +845,17 @@ function PixelM4() {
 // ── main export ───────────────────────────────────────────────
 const REFRESH_MS = 15_000;
 
-export function FleetDashboard({ initial, growthStats, jobStats, garage, initialTasks }: {
+export function FleetDashboard({ initial, growthStats, jobStats, garage, initialTasks, initialEvents }: {
   initial: AgentWithStatus[];
   growthStats: GrowthStats | null;
   jobStats: JobStats | null;
   garage: GarageData | null;
   initialTasks: FleetTask[];
+  initialEvents: EventFeed;
 }) {
   const [fleet, setFleet] = useState(initial);
   const [tasks, setTasks] = useState(initialTasks);
+  const [feed, setFeed] = useState(initialEvents);
   const [trends, setTrends] = useState<Record<string, { points: number[]; delta: number | null }>>({});
 
   useEffect(() => {
@@ -898,6 +867,10 @@ export function FleetDashboard({ initial, growthStats, jobStats, garage, initial
       try {
         const res = await fetch('/api/tasks');
         if (res.ok) setTasks((await res.json()).tasks ?? []);
+      } catch { /* transient — next tick retries */ }
+      try {
+        const res = await fetch('/api/events');
+        if (res.ok) setFeed(await res.json());
       } catch { /* transient — next tick retries */ }
     }, REFRESH_MS);
     return () => clearInterval(id);
@@ -928,11 +901,11 @@ export function FleetDashboard({ initial, growthStats, jobStats, garage, initial
   const nameFor = (id: string) => fleet.find((a) => a.agent.id === id)?.agent.name ?? id;
 
   return (
-    <div style={{ maxWidth: 1320, margin: '0 auto', padding: '30px 28px 60px' }}>
+    <div className="page" style={{ maxWidth: 1320, margin: '0 auto' }}>
       <Header online={online} needEye={needEye} />
       <Nav active="Fleet" />
-      <Hero fleet={fleet} />
-      <VizStrip growthStats={growthStats} garage={garage} />
+      <Hero fleet={fleet} feed={feed} />
+      <VizStrip growthStats={growthStats} garage={garage} feed={feed} />
 
       {/* agent grid */}
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14 }}>
@@ -941,7 +914,7 @@ export function FleetDashboard({ initial, growthStats, jobStats, garage, initial
         </h2>
         <span className="label">{fleet.length} units · auto-refresh {REFRESH_MS / 1000}s</span>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(360px, 100%), 1fr))', gap: 16 }}>
         {fleet.map((aw, i) => (
           <AgentCard key={aw.agent.id} aw={aw} idx={i}
             growthStats={growthStats} jobStats={jobStats} trend={trends[aw.agent.id]}

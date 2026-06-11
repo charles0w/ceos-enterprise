@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google';
 import './globals.css';
 
@@ -19,6 +19,17 @@ const mono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "CEO OS",
   description: 'Agent fleet control plane',
+  appleWebApp: {
+    capable: true,
+    title: 'CEO OS',
+    statusBarStyle: 'black-translucent',
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#030304',
+  width: 'device-width',
+  initialScale: 1,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
