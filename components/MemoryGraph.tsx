@@ -1,18 +1,25 @@
 'use client';
 
+// ── Memory graph — canvas force sim + note sidebar (black & chrome) ──
+// Skin per graph-page.jsx. The force sim, hit-testing, pan/zoom/drag,
+// selection highlighting and wikilink resolution are unchanged.
+
 import { useEffect, useRef, useState, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Nav, PageHeader } from './Shell';
 
 interface GNode { id: string; title: string; kind: string; degree: number }
 interface GLink { source: string; target: string }
 interface SimNode extends GNode { x: number; y: number; vx: number; vy: number; r: number }
 interface NoteData { slug: string; title: string; kind: string; body: string; links: string[] }
 
+// color = kind: core white (what matters most), fleet green,
+// entities violet (things in the world), sessions/learnings gold
 const KIND_COLOR: Record<string, string> = {
-  core: '#2fd4e6', fleet: '#39d98a', entity: '#a78bfa', session: '#f5a623', learning: '#f5a623',
+  core: '#f4f5f8', fleet: '#3fe08f', entity: '#a78bfa', session: '#f2c14e', learning: '#f2c14e',
 };
-const colorFor = (k: string) => KIND_COLOR[k] ?? '#7d8c98';
+const colorFor = (k: string) => KIND_COLOR[k] ?? '#84868f';
 
 // [[Target|Alias]] -> [Alias](#node:Target) ; > [!type] Title -> > **Title**
 function prepMarkdown(body: string): string {
@@ -130,24 +137,24 @@ export function MemoryGraph() {
       const adj = sel ? (graphRef.current.adj.get(sel) ?? new Set<string>()) : null;
       const isHot = (id: string) => !sel || id === sel || (adj?.has(id) ?? false);
 
-      ctx.lineWidth = 0.6 / view.scale;
+      ctx.lineWidth = 0.7 / view.scale;
       for (const l of links) {
         const hot = !sel || (isHot(l.s.id) && isHot(l.t.id) && (l.s.id === sel || l.t.id === sel));
-        ctx.strokeStyle = hot ? 'rgba(47,212,230,0.35)' : sel ? 'rgba(160,180,190,0.05)' : 'rgba(160,180,190,0.16)';
+        ctx.strokeStyle = hot ? 'rgba(215,218,226,0.32)' : sel ? 'rgba(180,184,196,0.045)' : 'rgba(180,184,196,0.14)';
         ctx.beginPath(); ctx.moveTo(l.s.x, l.s.y); ctx.lineTo(l.t.x, l.t.y); ctx.stroke();
       }
       for (const n of nodes) {
         const hot = isHot(n.id);
         ctx.beginPath(); ctx.arc(n.x, n.y, n.id === sel ? n.r + 1.5 : n.r, 0, Math.PI * 2);
-        ctx.fillStyle = colorFor(n.kind); ctx.globalAlpha = hot ? 0.95 : 0.15; ctx.fill();
-        if (n.id === sel) { ctx.lineWidth = 2 / view.scale; ctx.strokeStyle = '#eafcff'; ctx.stroke(); }
+        ctx.fillStyle = colorFor(n.kind); ctx.globalAlpha = hot ? 0.95 : 0.13; ctx.fill();
+        if (n.id === sel) { ctx.lineWidth = 2 / view.scale; ctx.strokeStyle = '#ffffff'; ctx.stroke(); }
         ctx.globalAlpha = 1;
       }
-      // labels for selected + neighbors
+      // labels for selected + neighbors only
       if (sel) {
         ctx.font = `${11 / view.scale}px ui-monospace, monospace`;
-        ctx.fillStyle = '#cfe4ea'; ctx.textAlign = 'center';
-        for (const n of nodes) if (isHot(n.id)) ctx.fillText(n.title, n.x, n.y - n.r - 4 / view.scale);
+        ctx.fillStyle = '#d7dae2'; ctx.textAlign = 'center';
+        for (const n of nodes) if (isHot(n.id)) ctx.fillText(n.title, n.x, n.y - n.r - 5 / view.scale);
       }
       ctx.restore();
     }
@@ -232,107 +239,119 @@ export function MemoryGraph() {
   const open = !!selectedId;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'var(--bg, #0b0f12)' }}>
-      <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
+    <div style={{ maxWidth: 1320, margin: '0 auto', padding: '30px 28px 40px', display: 'flex', flexDirection: 'column', minHeight: '100vh', width: '100%' }}>
+      <PageHeader
+        title="Memory graph."
+        sub="Everything the fleet knows, linked. Click a node to read it — drag to rearrange, scroll to zoom."
+      />
+      <Nav active="Memory graph" />
 
-      <div style={{ position: 'absolute', top: 18, left: 22, display: 'flex', alignItems: 'center', gap: 12 }}>
-        <a href="/" className="mono" style={{ fontSize: 11, color: '#2fd4e6', textDecoration: 'none' }}>← dashboard</a>
-        <a href="/ceo" className="mono" style={{ fontSize: 11, color: '#2fd4e6', textDecoration: 'none' }}>◉ CEO</a>
-        <span className="label" style={{ color: 'var(--txt-mid)', letterSpacing: '0.2em' }}>AI MEMORY GRAPH</span>
-        {meta && <span className="mono" style={{ fontSize: 10.5, color: 'var(--txt-faint)' }}>{meta.nodes} notes · {meta.links} links</span>}
-      </div>
+      <section className="panel edge rise" style={{ flex: 1, position: 'relative', overflow: 'hidden', minHeight: 480 }}>
+        <canvas ref={canvasRef} style={{ width: '100%', height: '100%', position: 'absolute', inset: 0, display: 'block' }} />
 
-      <div style={{ position: 'absolute', bottom: 18, left: 22, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-        {Object.entries({ core: 'core', fleet: 'fleet', entity: 'entity', session: 'sessions' }).map(([k, label]) => (
-          <span key={k} className="mono" style={{ fontSize: 10.5, color: 'var(--txt-dim)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 99, background: colorFor(k), display: 'inline-block' }} />{label}
-          </span>
-        ))}
-        <span className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>click a node to read it · drag · scroll to zoom</span>
-      </div>
-
-      {hover && !open && (
-        <div className="mono" style={{ position: 'absolute', left: hover.x + 12, top: hover.y + 12, pointerEvents: 'none', background: 'rgba(10,15,18,0.92)', border: '1px solid var(--line)', borderRadius: 6, padding: '4px 8px', fontSize: 11, color: '#eafcff', whiteSpace: 'nowrap' }}>
-          <span style={{ color: colorFor(hover.kind) }}>●</span> {hover.title}
+        {/* meta + legend */}
+        <div className="mono" style={{ position: 'absolute', top: 14, left: 16, fontSize: 10.5, color: 'var(--txt-faint)', whiteSpace: 'nowrap' }}>
+          {meta ? `${meta.nodes} notes · ${meta.links} links` : 'loading the vault…'}
         </div>
-      )}
-      {error && <div className="mono" style={{ position: 'absolute', top: 50, left: 22, color: '#ef5350', fontSize: 12 }}>⚠ {error}</div>}
+        <div style={{ position: 'absolute', bottom: 14, left: 16, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+          {Object.entries({ core: 'core', fleet: 'fleet', entity: 'entities', session: 'sessions' }).map(([k, label]) => (
+            <span key={k} className="mono" style={{ fontSize: 10.5, color: 'var(--txt-dim)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 8, height: 8, borderRadius: 99, background: colorFor(k), display: 'inline-block', boxShadow: `0 0 6px ${colorFor(k)}66` }} />{label}
+            </span>
+          ))}
+        </div>
 
-      {/* sidebar */}
-      <aside style={{
-        position: 'absolute', top: 0, right: 0, bottom: 0, width: 'min(460px, 92vw)',
-        transform: open ? 'translateX(0)' : 'translateX(100%)', transition: 'transform .22s cubic-bezier(.2,.7,.3,1)',
-        background: 'rgba(11,16,19,0.97)', borderLeft: '1px solid var(--line)', backdropFilter: 'blur(8px)',
-        display: 'flex', flexDirection: 'column', boxShadow: '-20px 0 50px -30px rgba(0,0,0,0.8)',
-      }}>
-        {note && (
-          <>
-            <header style={{ padding: '18px 20px 14px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                <span style={{ width: 9, height: 9, borderRadius: 99, background: colorFor(note.kind), flexShrink: 0 }} />
-                <span className="mono" style={{ fontSize: 10, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{note.kind}</span>
-                <button onClick={() => setSelectedId(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--txt-mid)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
-              </div>
-              <h1 style={{ margin: '8px 0 2px', fontSize: 19, fontWeight: 600, color: '#eef6f9' }}>{note.title}</h1>
-              <div className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>{note.slug}</div>
-            </header>
+        {error && <div className="mono" style={{ position: 'absolute', top: 38, left: 16, color: 'var(--err)', fontSize: 12 }}>⚠ {error}</div>}
 
-            <div className="note-md" style={{ overflowY: 'auto', padding: '16px 20px 26px', flex: 1 }}>
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  a: ({ href, children }) => {
-                    if (href?.startsWith('#node:')) {
-                      const tgt = href.slice(6);
-                      return <a href={`#node:${tgt}`} onClick={(e) => { e.preventDefault(); selectByTarget(tgt); }} style={{ color: '#2fd4e6', textDecoration: 'none', borderBottom: '1px dotted #2fd4e655' }}>{children}</a>;
-                    }
-                    return <a href={href} target="_blank" rel="noreferrer" style={{ color: '#a78bfa' }}>{children}</a>;
-                  },
-                }}
-              >{prepMarkdown(note.body)}</ReactMarkdown>
-
-              {connections.length > 0 && (
-                <div style={{ marginTop: 22, paddingTop: 16, borderTop: '1px solid var(--line)' }}>
-                  <div className="label" style={{ marginBottom: 9 }}>Connections · {connections.length}</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {connections.map((c) => (
-                      <button key={c.id} onClick={() => setSelectedId(c.id)} className="mono" style={{
-                        fontSize: 11, padding: '4px 9px', borderRadius: 7, cursor: 'pointer',
-                        background: 'rgba(255,255,255,0.03)', border: `1px solid ${colorFor(c.kind)}33`, color: '#dfeef2',
-                        display: 'inline-flex', alignItems: 'center', gap: 6,
-                      }}>
-                        <span style={{ width: 7, height: 7, borderRadius: 99, background: colorFor(c.kind) }} />{c.title}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </>
-        )}
-        {open && !note && (
-          <div className="mono" style={{ padding: 24, color: noteLoading ? '#2fd4e6' : '#ef5350', fontSize: 12 }}>
-            {noteLoading ? 'loading note…' : 'note not found'}
+        {/* hover tooltip */}
+        {hover && !open && (
+          <div className="mono" style={{
+            position: 'absolute', left: hover.x + 12, top: hover.y + 12, pointerEvents: 'none',
+            background: 'rgba(8,8,10,0.94)', border: '1px solid var(--line-2)', borderRadius: 6,
+            padding: '4px 8px', fontSize: 11, color: 'var(--white)', whiteSpace: 'nowrap',
+          }}>
+            <span style={{ color: colorFor(hover.kind) }}>●</span> {hover.title}
           </div>
         )}
-      </aside>
+
+        {/* note sidebar — slides in from the right, inside the panel */}
+        <aside style={{
+          position: 'absolute', top: 0, right: 0, bottom: 0, width: 'min(400px, 92%)',
+          transform: open ? 'translateX(0)' : 'translateX(100%)',
+          transition: 'transform .22s cubic-bezier(.2,.7,.3,1)',
+          background: 'rgba(8,8,10,0.97)', borderLeft: '1px solid var(--line)',
+          display: 'flex', flexDirection: 'column',
+          boxShadow: '-20px 0 50px -30px rgba(0,0,0,0.9)',
+        }}>
+          {note && (
+            <>
+              <header style={{ padding: '16px 18px 13px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                  <span style={{ width: 9, height: 9, borderRadius: 99, background: colorFor(note.kind), flexShrink: 0, boxShadow: `0 0 7px ${colorFor(note.kind)}88` }} />
+                  <span className="mono" style={{ fontSize: 10, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{note.kind}</span>
+                  <button onClick={() => setSelectedId(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--txt-mid)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
+                </div>
+                <h2 className="chrome" style={{ margin: '8px 0 2px', fontSize: 19, fontWeight: 700 }}>{note.title}</h2>
+                <div className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>{note.slug}</div>
+              </header>
+
+              <div className="note-md" style={{ overflowY: 'auto', padding: '14px 18px 22px', flex: 1 }}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    a: ({ href, children }) => {
+                      if (href?.startsWith('#node:')) {
+                        const tgt = href.slice(6);
+                        return <a href={`#node:${tgt}`} onClick={(e) => { e.preventDefault(); selectByTarget(tgt); }} style={{ color: 'var(--silver)', borderBottom: '1px dotted rgba(215,218,226,0.45)' }}>{children}</a>;
+                      }
+                      return <a href={href} target="_blank" rel="noreferrer" style={{ color: 'var(--gold)' }}>{children}</a>;
+                    },
+                  }}
+                >{prepMarkdown(note.body)}</ReactMarkdown>
+
+                {connections.length > 0 && (
+                  <div style={{ marginTop: 20, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
+                    <div className="label" style={{ marginBottom: 9 }}>Connections · {connections.length}</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {connections.map((c) => (
+                        <button key={c.id} onClick={() => setSelectedId(c.id)} className="mono" style={{
+                          fontSize: 11, padding: '4px 9px', borderRadius: 7, cursor: 'pointer',
+                          background: 'rgba(255,255,255,0.03)', border: `1px solid ${colorFor(c.kind)}44`,
+                          color: 'var(--white)', display: 'inline-flex', alignItems: 'center', gap: 6,
+                        }}>
+                          <span style={{ width: 7, height: 7, borderRadius: 99, background: colorFor(c.kind) }} />{c.title}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+          {open && !note && (
+            <div className="mono" style={{ padding: 24, color: noteLoading ? 'var(--silver)' : 'var(--err)', fontSize: 12 }}>
+              {noteLoading ? 'loading note…' : 'note not found'}
+            </div>
+          )}
+        </aside>
+      </section>
 
       <style>{`
-        .note-md { color: var(--txt, #c8d6dc); font-size: 13.5px; line-height: 1.62; }
-        .note-md h1, .note-md h2, .note-md h3 { color: #eef6f9; line-height: 1.25; margin: 18px 0 8px; }
+        .note-md { color: var(--txt); font-size: 13.5px; line-height: 1.62; }
+        .note-md h1, .note-md h2, .note-md h3 { color: var(--white); line-height: 1.25; margin: 18px 0 8px; font-weight: 600; }
         .note-md h1 { font-size: 18px; } .note-md h2 { font-size: 15.5px; } .note-md h3 { font-size: 13.5px; }
         .note-md p { margin: 9px 0; }
         .note-md ul, .note-md ol { margin: 8px 0; padding-left: 20px; }
         .note-md li { margin: 3px 0; }
-        .note-md blockquote { margin: 10px 0; padding: 8px 12px; border-left: 2px solid #2fd4e655; background: rgba(47,212,230,0.05); border-radius: 0 6px 6px 0; color: var(--txt-mid, #9fb2ba); }
-        .note-md code { font-family: ui-monospace, monospace; font-size: 12px; background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 4px; }
+        .note-md blockquote { margin: 10px 0; padding: 8px 12px; border-left: 2px solid rgba(215,218,226,0.35); background: rgba(215,218,226,0.05); border-radius: 0 6px 6px 0; color: var(--txt-mid); }
+        .note-md code { font-family: var(--mono); font-size: 12px; background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 4px; }
         .note-md pre { background: rgba(255,255,255,0.04); border: 1px solid var(--line); border-radius: 8px; padding: 11px; overflow-x: auto; }
         .note-md pre code { background: none; padding: 0; }
         .note-md table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 12px; display: block; overflow-x: auto; }
         .note-md th, .note-md td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; }
-        .note-md th { background: rgba(255,255,255,0.03); color: #dfeef2; }
+        .note-md th { background: rgba(255,255,255,0.03); color: var(--white); }
         .note-md hr { border: none; border-top: 1px solid var(--line); margin: 16px 0; }
-        .note-md strong { color: #eafcff; }
+        .note-md strong { color: var(--white); }
       `}</style>
     </div>
   );

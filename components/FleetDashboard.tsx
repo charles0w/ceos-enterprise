@@ -1,0 +1,847 @@
+'use client';
+
+// ── CEO OS v2 — Fleet dashboard (black & chrome personal hub) ──
+// Home surface: greeting + clock, night-garage hero with rotating
+// reminders, The Garage targets, Growth pipeline funnel, live log,
+// agent cards driven by getFleet(), and the pixel M4 strip.
+
+import { useState, useEffect, useRef } from 'react';
+import type { AgentWithStatus } from '@/lib/types';
+import type { GrowthStats } from '@/lib/growth';
+import type { JobStats } from '@/lib/jobs';
+import {
+  CHROME_GRAD, StatusDot, ChromeIcon, GlyphTile, Sparkline, ProgressBar,
+  Kpi, PanelHead, useClock, useCountUp, useRotator, fmtMoney, fmtNum, greetingFor,
+} from './chrome';
+import { Nav } from './Shell';
+
+const STATE_META: Record<string, { color: string; label: string }> = {
+  ok:    { color: '#3fe08f', label: 'operational' },
+  warn:  { color: '#f2c14e', label: 'degraded' },
+  error: { color: '#f25c5c', label: 'error' },
+  idle:  { color: '#3c3c44', label: 'standby' },
+};
+
+// ── per-agent presentation config ─────────────────────────────
+// Sigils are the user-supplied chrome photos; agents without one
+// get a mono glyph in the same black tile.
+interface AgentCfg {
+  sigil?: string;
+  glyph?: string;
+  uptime: number | null;
+  note?: string;
+  link?: { label: string; href: string };
+}
+const AGENT_CFG: Record<string, AgentCfg> = {
+  commerce:        { sigil: '/assets/crown.png',       uptime: 99.4 },
+  finance:         { sigil: '/assets/dollar.png',      uptime: 98.9 },
+  'lambos-trader': { glyph: 'Λ',                       uptime: 97.6 },
+  growth:          { sigil: '/assets/chrome-star.png', uptime: 99.1, link: { label: 'open pipeline', href: '/businesses' } },
+  jobs:            { glyph: '▤',                       uptime: 99.0 },
+  social:          { sigil: '/assets/tiktok.png',      uptime: 96.2 },
+  hobbies:         { sigil: '/assets/vinyl.png',       uptime: null, note: 'awaiting assignment' },
+  school:          { sigil: '/assets/esc-key.png',     uptime: null, note: 'provisioning — Phase 4' },
+};
+
+function Sigil({ id, size = 36 }: { id: string; size?: number }) {
+  const cfg = AGENT_CFG[id];
+  if (cfg?.sigil) return <ChromeIcon src={cfg.sigil} size={size} />;
+  return <GlyphTile glyph={cfg?.glyph ?? '○'} size={size} />;
+}
+
+// ── decorative 24h sparklines (seeded; throughput sums them) ──
+function spark(seed: number, n = 24, base = 50, vol = 18, trend = 0): number[] {
+  const out: number[] = [];
+  let v = base, s = seed * 9301 + 49297;
+  const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+  for (let i = 0; i < n; i++) {
+    v += (rnd() - 0.5) * vol + trend;
+    v = Math.max(2, v);
+    out.push(Math.round(v));
+  }
+  return out;
+}
+const SPARKS: Record<string, number[]> = {
+  commerce:        spark(7,  24, 30, 10,  1.1),
+  finance:         spark(13, 24, 60,  9,  0.4),
+  'lambos-trader': spark(17, 24, 40, 12,  0.6),
+  growth:          spark(3,  24, 20, 14,  2.0),
+  jobs:            spark(11, 24, 25, 12,  1.4),
+  social:          spark(21, 24, 45, 16, -0.3),
+};
+const THROUGHPUT = Array.from({ length: 24 }, (_, i) =>
+  Object.values(SPARKS).reduce((sum, s) => sum + (s[i] || 0), 0)
+);
+
+// Live task blocks have no real percentage; derive a stable one per
+// run so the bar doesn't jump on every refresh.
+function hashProgress(seed: string): number {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
+  return 0.18 + (Math.abs(h) % 1000) / 1000 * 0.68;
+}
+
+// ── the garage — what all of this is for ──────────────────────
+// progress values are placeholders; wire to real savings/revenue
+const GARAGE = [
+  { id: '812',    label: 'Ferrari 812 Superfast', sub: 'Rosso Corsa',        progress: 0.06 },
+  { id: 'm4',     label: 'BMW M4 Competition',    sub: 'first key',          progress: 0.22, img: '/assets/m-logo.png' },
+  { id: 'studio', label: 'Highrise studio',       sub: 'floor 40+, skyline', progress: 0.11 },
+];
+
+// ── quiet reminders — rotate slowly, stay out of the way ──────
+const QUOTES = [
+  'Quiet moves. Loud results.',
+  'The car is the byproduct. Become the man first.',
+  'Nobody is coming. Build it yourself.',
+  'Discipline buys what motivation window-shops.',
+  'Floor 40 is earned one shipped day at a time.',
+  'Six agents working while you sleep. Stay sharp while you’re awake.',
+];
+
+// ── system log ────────────────────────────────────────────────
+const LOG_POOL = [
+  { a: 'commerce', sev: 'ok',   t: 'order #4821 fulfilled — $74.00' },
+  { a: 'growth',   sev: 'ok',   t: 'demo site generated → sunset-thai.berkeley.site' },
+  { a: 'finance',  sev: 'info', t: 'pulled 18 tickers · vol elevated on NVDA' },
+  { a: 'social',   sev: 'warn', t: 'IG rate limit hit — backing off 90s' },
+  { a: 'growth',   sev: 'ok',   t: 'cold-email queued → 24th St Cafe' },
+  { a: 'commerce', sev: 'ok',   t: 'sourced 6 new SKUs · margin ≥ 28%' },
+  { a: 'finance',  sev: 'info', t: 'portfolio marked — day P/L +1.8%' },
+  { a: 'growth',   sev: 'info', t: 'scraped 14 businesses · Berkeley · food' },
+  { a: 'social',   sev: 'ok',   t: 'trend detected — "matcha morning" +220%' },
+  { a: 'commerce', sev: 'ok',   t: 'card flip closed — PSA 10 Charizard +$310' },
+  { a: 'system',   sev: 'info', t: 'health sweep complete · 4/6 online' },
+  { a: 'growth',   sev: 'ok',   t: 'listing generated · 28 sites live' },
+  { a: 'finance',  sev: 'ok',   t: 'EOD recap scheduled · 4:00pm PT' },
+  { a: 'system',   sev: 'info', t: 'KV snapshot persisted' },
+  { a: 'commerce', sev: 'info', t: 'fulfillment loop tick · 14 in flight' },
+];
+
+interface LogLine { a: string; sev: string; t: string; ts: Date; key: string }
+
+function seedLog(now: number, count = 8): LogLine[] {
+  const out: LogLine[] = [];
+  for (let i = 0; i < count; i++) {
+    const item = LOG_POOL[(i * 5 + 2) % LOG_POOL.length];
+    out.push({ ...item, ts: new Date(now - i * 47000), key: 'seed' + i });
+  }
+  return out;
+}
+
+function qColor(v: number): string {
+  return v >= 0.8 ? '#3fe08f' : v >= 0.6 ? '#f2c14e' : '#f25c5c';
+}
+
+// ── header ────────────────────────────────────────────────────
+function Header({ online, needEye }: { online: number; needEye: number }) {
+  const now = useClock();
+  const h = now.getHours();
+  const hh = ((h % 12) || 12);
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const ss = String(now.getSeconds()).padStart(2, '0');
+  const mer = h < 12 ? 'AM' : 'PM';
+  const date = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  return (
+    <header style={{
+      display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
+      flexWrap: 'wrap', gap: 20, paddingBottom: 14,
+    }}>
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+          <ChromeIcon src="/assets/crown.png" size={30} radius={8} />
+          <span className="label" style={{ color: 'var(--txt-mid)', fontSize: 11, letterSpacing: '0.3em' }}>
+            CEO&nbsp;OS · CHARLES ETHAN OW
+          </span>
+        </div>
+        <h1 suppressHydrationWarning className="chrome" style={{
+          margin: 0, fontFamily: 'var(--sans)', fontWeight: 700, fontSize: 34,
+          letterSpacing: '-0.015em', lineHeight: 1.1,
+        }}>
+          {greetingFor(h)}, Charles.
+        </h1>
+        <p style={{ margin: '8px 0 0', color: 'var(--txt-mid)', fontSize: 14 }}>
+          The desk is quiet. <span style={{ color: 'var(--white)' }}>{online} agents</span> are working —{' '}
+          {needEye === 0 ? 'nothing needs your eye' : `${needEye} need${needEye === 1 ? 's' : ''} your eye`}.
+        </p>
+      </div>
+      <div style={{ textAlign: 'right' }}>
+        {/* live clock: server and client render different seconds — not a real mismatch */}
+        <div suppressHydrationWarning className="mono tnum" style={{ fontSize: 30, color: 'var(--white)', letterSpacing: '0.02em', lineHeight: 1, whiteSpace: 'nowrap' }}>
+          {hh}:{mm}:{ss}<span suppressHydrationWarning style={{ fontSize: 14, color: 'var(--txt-mid)', marginLeft: 6 }}>{mer}</span>
+        </div>
+        <div suppressHydrationWarning className="mono" style={{ fontSize: 12, color: 'var(--txt-dim)', marginTop: 7, whiteSpace: 'nowrap' }}>{date} · PT</div>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, marginTop: 9 }}>
+          <StatusDot color="#3fe08f" pulse size={7} />
+          <span className="label" style={{ color: 'var(--silver)' }}>all systems live</span>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+// ── hero — the night garage ───────────────────────────────────
+function Hero({ fleet }: { fleet: AgentWithStatus[] }) {
+  const running = fleet.filter((a) => a.status?.summary).length;
+  const ups = fleet
+    .map((a) => AGENT_CFG[a.agent.id]?.uptime)
+    .filter((u): u is number => u != null);
+  const avgUp = ups.length ? ups.reduce((s, u) => s + u, 0) / ups.length : 0;
+  const events = useCountUp(1284, 1500);
+  const gmv = useCountUp(2840, 1500);
+  const [quote, qi] = useRotator(QUOTES);
+
+  return (
+    <section className="panel edge rise" style={{ overflow: 'hidden', marginBottom: 20, background: '#050506' }}>
+      <div style={{
+        display: 'grid', gridTemplateColumns: '1.05fr 1fr', alignItems: 'stretch', minHeight: 250,
+      }}>
+        {/* left — numbers + the reminder */}
+        <div style={{ padding: '28px 8px 24px 30px', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', gap: 44, flexWrap: 'wrap' }}>
+            <Kpi label="Running" value={running} />
+            <Kpi label="Avg uptime" value={avgUp.toFixed(1)} suffix="%" />
+            <Kpi label="Events · 24h" value={fmtNum(events)} />
+            <Kpi label="GMV today" value={fmtMoney(gmv)} />
+          </div>
+          {/* quiet reminder */}
+          <div key={qi} style={{ marginTop: 'auto', paddingTop: 26, animation: 'quoteIn 0.9s ease both' }}>
+            <div className="label" style={{ marginBottom: 8, color: 'var(--txt-faint)' }}>reminder</div>
+            <div className="chrome" style={{
+              fontSize: 19, fontWeight: 600, letterSpacing: '0.005em', maxWidth: 420, lineHeight: 1.35,
+            }}>
+              “{quote}”
+            </div>
+          </div>
+        </div>
+        {/* right — the car waiting in the dark */}
+        <div style={{ position: 'relative', minHeight: 230, overflow: 'hidden' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/assets/bmw-shadow.png" alt="" className="blend" style={{
+            position: 'absolute', right: -40, bottom: -36, width: '120%', maxWidth: 640,
+            animation: 'headlights 6s ease-in-out infinite',
+          }} />
+          <div className="mono" style={{
+            position: 'absolute', right: 18, top: 16, fontSize: 9.5,
+            letterSpacing: '0.22em', color: 'var(--txt-faint)', textTransform: 'uppercase',
+            whiteSpace: 'nowrap',
+          }}>it&rsquo;s waiting</div>
+        </div>
+      </div>
+      {/* throughput strip */}
+      <div style={{ padding: '12px 24px 18px', borderTop: '1px solid var(--line)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+          <span className="label">Throughput · 24h</span>
+          <span className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>events/hr</span>
+        </div>
+        <Throughput data={THROUGHPUT} height={58} />
+      </div>
+    </section>
+  );
+}
+
+function Throughput({ data, height = 64 }: { data: number[]; height?: number }) {
+  const width = 100;
+  const max = Math.max(...data), min = Math.min(...data);
+  const range = max - min || 1;
+  const X = (i: number) => (i / (data.length - 1)) * width;
+  const Y = (v: number) => height - 4 - ((v - min) / range) * (height - 12);
+  const line = data.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(2)} ${Y(v).toFixed(2)}`).join(' ');
+  const area = `${line} L ${width} ${height} L 0 ${height} Z`;
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none"
+      style={{ width: '100%', height, display: 'block' }}>
+      <defs>
+        <linearGradient id="thru2" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#d7dae2" stopOpacity="0.2" />
+          <stop offset="100%" stopColor="#d7dae2" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {[0.25, 0.5, 0.75].map((g) => (
+        <line key={g} x1="0" x2={width} y1={height * g} y2={height * g}
+          stroke="rgba(255,255,255,0.035)" strokeWidth="0.4" />
+      ))}
+      <path d={area} fill="url(#thru2)" />
+      <path d={line} fill="none" stroke="#c9ccd6" strokeWidth="1" vectorEffect="non-scaling-stroke"
+        style={{ filter: 'drop-shadow(0 0 3px rgba(226,228,236,0.5))' }} />
+    </svg>
+  );
+}
+
+// ── viz strip: the garage / pipeline funnel / live log ────────
+function Garage() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '15px 16px 17px' }}>
+      {GARAGE.map((t) => (
+        <div key={t.id}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 2, minWidth: 0 }}>
+            <span style={{
+              fontSize: 13, fontWeight: 600, color: 'var(--white)', letterSpacing: '0.01em',
+              whiteSpace: 'nowrap', flexShrink: 0,
+            }}>{t.label}</span>
+            {t.img && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={t.img} alt="" className="blend" style={{ height: 13, width: 'auto', display: 'block', opacity: 0.9, alignSelf: 'center', flexShrink: 0 }} />
+            )}
+            <span className="mono tnum" style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--silver)', flexShrink: 0 }}>
+              {Math.round(t.progress * 100)}%
+            </span>
+          </div>
+          <div className="mono" style={{ fontSize: 10, color: 'var(--txt-dim)', marginBottom: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.sub}</div>
+          <ProgressBar value={t.progress} active={false} height={5} />
+        </div>
+      ))}
+      <div className="mono" style={{ fontSize: 9.5, color: 'var(--txt-faint)', letterSpacing: '0.06em' }}>
+        progress placeholders — wire to savings / revenue
+      </div>
+    </div>
+  );
+}
+
+function Funnel({ pipeline }: { pipeline: { scraped: number; sites: number; emailed: number; replied: number; closed: number } }) {
+  const rows = [
+    { k: 'scraped' as const, label: 'Leads scraped' },
+    { k: 'sites'   as const, label: 'Sites built' },
+    { k: 'emailed' as const, label: 'Emails sent' },
+    { k: 'replied' as const, label: 'Replied' },
+    { k: 'closed'  as const, label: 'Closed' },
+  ];
+  const max = pipeline.scraped || 1;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 11, padding: '14px 16px 16px' }}>
+      {rows.map((r) => {
+        const val = pipeline[r.k];
+        const w = Math.max(val > 0 ? 6 : 0, (val / max) * 100);
+        return (
+          <div key={r.k}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+              <span className="label" style={{ letterSpacing: '0.14em' }}>{r.label}</span>
+              <span className="mono tnum" style={{ fontSize: 12, color: val > 0 ? 'var(--white)' : 'var(--txt-faint)' }}>{val}</span>
+            </div>
+            <div style={{ height: 7, borderRadius: 99, background: 'rgba(255,255,255,0.04)', overflow: 'hidden' }}>
+              <div style={{
+                height: '100%', width: w + '%', borderRadius: 99,
+                background: val > 0 ? CHROME_GRAD : 'transparent',
+                boxShadow: val > 0 ? '0 0 8px rgba(226,228,236,0.3)' : 'none',
+                transition: 'width 1.4s cubic-bezier(.2,.7,.3,1)',
+              }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function LogFeed({ height = 236 }: { height?: number }) {
+  const [lines, setLines] = useState<LogLine[]>(() => seedLog(Date.now()));
+  const n = useRef(0);
+  useEffect(() => {
+    const id = setInterval(() => {
+      const item = LOG_POOL[Math.floor(Math.random() * LOG_POOL.length)];
+      n.current++;
+      setLines((prev) => [{ ...item, ts: new Date(), key: 'l' + Date.now() + n.current }, ...prev].slice(0, 14));
+    }, 2600);
+    return () => clearInterval(id);
+  }, []);
+  const fmt = (d: Date) => d.toTimeString().slice(0, 8);
+  return (
+    <div style={{ height, overflow: 'hidden', padding: '6px 14px 14px', maskImage: 'linear-gradient(180deg,#000 86%,transparent)', WebkitMaskImage: 'linear-gradient(180deg,#000 86%,transparent)' }}>
+      {lines.map((l, i) => (
+        <div key={l.key} style={{
+          display: 'flex', gap: 9, alignItems: 'baseline', padding: '4.5px 0',
+          fontFamily: 'var(--mono)', fontSize: 11.5, lineHeight: 1.35,
+          opacity: i === 0 ? 1 : Math.max(0.35, 1 - i * 0.055),
+          animation: i === 0 ? 'flickerIn 0.4s ease both' : 'none',
+        }}>
+          <span suppressHydrationWarning style={{ color: 'var(--txt-faint)', flexShrink: 0 }}>{fmt(l.ts)}</span>
+          <span style={{
+            color: l.sev === 'warn' ? 'var(--gold)' : 'var(--silver)', flexShrink: 0,
+            textTransform: 'uppercase', fontSize: 9, letterSpacing: '0.08em', width: 62, paddingTop: 1,
+            opacity: 0.85,
+          }}>{l.a}</span>
+          <span style={{ color: l.sev === 'warn' ? 'var(--gold)' : 'var(--txt)', flex: 1 }}>{l.t}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function VizStrip({ growthStats }: { growthStats: GrowthStats | null }) {
+  const pipeline = {
+    scraped: growthStats?.total ?? 0,
+    sites:   growthStats?.sitesBuilt ?? 0,
+    emailed: growthStats?.outreachSent ?? 0,
+    replied: growthStats?.outreachReplied ?? 0,
+    closed:  growthStats?.closed ?? 0,
+  };
+  return (
+    <div id="pipeline" style={{
+      display: 'grid', gridTemplateColumns: 'minmax(0,1.15fr) minmax(0,1fr) minmax(0,1.2fr)',
+      gap: 16, marginBottom: 20,
+    }}>
+      <section className="panel rise" style={{ animationDelay: '100ms' }}>
+        <PanelHead title="The garage" right={<span className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>what it&rsquo;s for</span>} />
+        <Garage />
+      </section>
+      <section className="panel rise" style={{ animationDelay: '160ms' }}>
+        <PanelHead title="Growth pipeline" right={<span className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>berkeley-biz</span>} />
+        <Funnel pipeline={pipeline} />
+      </section>
+      <section className="panel rise" style={{ animationDelay: '220ms' }}>
+        <PanelHead title="System log" right={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><StatusDot color="#3fe08f" pulse size={6} /><span className="mono" style={{ fontSize: 10, color: 'var(--silver)' }}>live</span></span>} />
+        <LogFeed />
+      </section>
+    </div>
+  );
+}
+
+// ── agent card ────────────────────────────────────────────────
+interface MetricDef { label: string; value: number; unit?: string; money?: boolean; signed?: boolean }
+
+function MetricCell({ m }: { m: MetricDef }) {
+  let display: string;
+  if (m.money) display = fmtMoney(m.value);
+  else if (m.signed) display = (m.value >= 0 ? '+' : '') + m.value + (m.unit || '');
+  else display = fmtNum(m.value) + (m.unit ? m.unit : '');
+  const col = m.signed ? (m.value >= 0 ? 'var(--silver)' : 'var(--red)') : 'var(--white)';
+  return (
+    <div>
+      <div className="mono tnum" style={{ fontSize: 17, color: col, lineHeight: 1.1 }}>{display}</div>
+      <div className="label" style={{ fontSize: 9, marginTop: 3, letterSpacing: '0.12em' }}>{m.label}</div>
+    </div>
+  );
+}
+
+// eval layer — does the agent's output actually hold up
+function QualityRow({ score, reliability, note }:
+  { score?: number; reliability?: number; note?: string }) {
+  if (score == null && reliability == null) return null;
+  return (
+    <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span className="label" style={{ letterSpacing: '0.14em' }}>output quality</span>
+        <span style={{ display: 'inline-flex', gap: 9, alignItems: 'baseline' }}>
+          {score != null && (
+            <span className="mono tnum" style={{ fontSize: 13, color: qColor(score) }}>
+              {Math.round(score * 100)}<span style={{ fontSize: 10, color: 'var(--txt-dim)' }}>%</span>
+            </span>
+          )}
+          {reliability != null && (
+            <span className="mono" style={{ fontSize: 10, color: 'var(--txt-mid)' }}>
+              rel {Math.round(reliability * 100)}%
+            </span>
+          )}
+        </span>
+      </div>
+      {score != null && <ProgressBar value={score} active={false} height={5} />}
+      {note && (
+        <span className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)', lineHeight: 1.4 }}>
+          ⚖ {note}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function AgentCard({ aw, idx, growthStats, jobStats, trend }: {
+  aw: AgentWithStatus;
+  idx: number;
+  growthStats: GrowthStats | null;
+  jobStats: JobStats | null;
+  trend?: { points: number[]; delta: number | null };
+}) {
+  const { agent, status } = aw;
+  const cfg = AGENT_CFG[agent.id] ?? { uptime: null };
+  const stateKey = status?.state ?? 'idle';
+  const meta = STATE_META[stateKey] ?? STATE_META.idle;
+  const active = status != null && status.state != null;
+  const dead = !active;
+
+  let metrics: MetricDef[] = [];
+  if (agent.id === 'growth' && growthStats) {
+    metrics = [
+      { label: 'Leads', value: growthStats.total },
+      { label: 'Sites built', value: growthStats.sitesBuilt ?? 0 },
+      { label: 'Emails', value: growthStats.outreachSent },
+    ];
+  } else if (agent.id === 'jobs' && jobStats && jobStats.discovered > 0) {
+    metrics = [
+      { label: 'Found', value: jobStats.discovered },
+      { label: 'Applied', value: jobStats.submitted },
+      { label: 'Interviews', value: jobStats.interviews },
+    ];
+  }
+
+  const sparkData = active ? SPARKS[agent.id] ?? null : null;
+
+  return (
+    <div className={'panel rise' + (active ? ' edge' : '')} style={{
+      overflow: 'hidden', display: 'flex', flexDirection: 'column',
+      animationDelay: 80 + idx * 70 + 'ms',
+      borderColor: active ? 'var(--line-2)' : 'var(--line)',
+      boxShadow: active ? '0 18px 44px -30px rgba(225,228,238,0.25)' : 'none',
+      opacity: dead ? 0.66 : 1,
+    }}>
+      <div style={{ padding: '16px 18px 18px', display: 'flex', flexDirection: 'column', flex: 1 }}>
+        {/* header */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+            <Sigil id={agent.id} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 15.5, fontWeight: 600, color: 'var(--white)', lineHeight: 1.1, whiteSpace: 'nowrap' }}>{agent.name}</div>
+              <div className="mono" style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{agent.ownerRepo}</div>
+            </div>
+          </div>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, paddingTop: 2 }}>
+            <StatusDot color={meta.color} pulse={active} size={7} />
+            <span className="label" style={{ color: meta.color, fontSize: 9 }}>{meta.label}</span>
+          </div>
+        </div>
+
+        {/* role */}
+        <p style={{ margin: '14px 0 0', fontSize: 13, color: 'var(--txt)', lineHeight: 1.45 }}>{agent.role}</p>
+
+        {/* skills */}
+        {agent.skills.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 11 }}>
+            {agent.skills.map((s) => (
+              <span key={s} className="mono" style={{
+                fontSize: 9.5, padding: '2.5px 8px', borderRadius: 5,
+                background: 'rgba(255,255,255,0.03)', color: 'var(--txt-mid)',
+                border: '1px solid var(--line)', letterSpacing: '0.03em',
+                whiteSpace: 'nowrap',
+              }}>{s}</span>
+            ))}
+          </div>
+        )}
+
+        {/* live task */}
+        {status?.summary ? (
+          <div style={{
+            marginTop: 16, padding: '11px 12px', borderRadius: 10,
+            background: 'rgba(255,255,255,0.02)', border: '1px solid var(--line)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 10 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 11.5, color: 'var(--txt)', minWidth: 0 }}>
+                <StatusDot color={meta.color} pulse={active} size={6} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{status.summary}</span>
+              </span>
+              <span className="mono tnum" style={{ fontSize: 11, color: 'var(--silver)', flexShrink: 0 }}>
+                {Math.round(hashProgress(agent.id + status.lastRun) * 100)}%
+              </span>
+            </div>
+            <ProgressBar value={hashProgress(agent.id + status.lastRun)} active={active} />
+          </div>
+        ) : (
+          <div style={{
+            marginTop: 16, padding: '11px 12px', borderRadius: 10, textAlign: 'center',
+            background: 'rgba(255,255,255,0.015)', border: '1px dashed var(--line-2)',
+          }}>
+            <span className="mono" style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
+              {cfg.note || (status ? `last run ${new Date(status.lastRun).toLocaleDateString()}` : 'no active task')}
+            </span>
+          </div>
+        )}
+
+        {/* output quality (eval layer) */}
+        <QualityRow
+          score={status?.evalScore}
+          reliability={status?.evalReliability}
+          note={status?.evalSummary}
+        />
+
+        {/* quality trend from eval_runs history */}
+        {trend && trend.points.length >= 2 && (
+          <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span className="label" style={{ letterSpacing: '0.14em' }}>
+              quality trend
+              {trend.delta != null && (
+                <span style={{ marginLeft: 8, color: trend.delta >= 0 ? 'var(--ok)' : 'var(--err)' }}>
+                  {trend.delta >= 0 ? '▲' : '▼'} {Math.abs(Math.round(trend.delta * 100))}%
+                </span>
+              )}
+            </span>
+            <Sparkline data={trend.points} width={108} height={28} />
+          </div>
+        )}
+
+        {/* metrics + sparkline */}
+        {metrics.length > 0 ? (
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, marginTop: 16 }}>
+            <div style={{ display: 'flex', gap: 18 }}>
+              {metrics.map((m) => <MetricCell key={m.label} m={m} />)}
+            </div>
+            {sparkData && <Sparkline data={sparkData} />}
+          </div>
+        ) : sparkData ? (
+          <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
+            <Sparkline data={sparkData} width={120} />
+          </div>
+        ) : null}
+
+        {/* footer */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          marginTop: 'auto', paddingTop: 14,
+        }}>
+          <div className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>
+            {cfg.uptime != null && <span style={{ color: 'var(--txt-dim)' }}>{cfg.uptime}% uptime · </span>}
+            {agent.schedule}
+          </div>
+          {cfg.link
+            ? <a href={cfg.link.href} className="mono" style={{ fontSize: 10.5, color: 'var(--silver)' }}>{cfg.link.label} →</a>
+            : cfg.note && active ? <span className="mono" style={{ fontSize: 10, color: 'var(--gold)' }}>{cfg.note}</span> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── fleet quality (consolidated eval panel) ───────────────────
+function FleetQuality({ fleet, trends }: {
+  fleet: AgentWithStatus[];
+  trends: Record<string, { points: number[]; delta: number | null }>;
+}) {
+  const scored = fleet.filter((a) => a.status?.evalScore != null);
+  const avg = scored.length
+    ? scored.reduce((acc, a) => acc + (a.status!.evalScore as number), 0) / scored.length
+    : null;
+  const rows = fleet.filter(
+    (a) => a.status?.evalScore != null || (trends[a.agent.id]?.points?.length ?? 0) >= 2
+  );
+  if (rows.length === 0) return null;
+
+  return (
+    <section className="panel rise" style={{ marginTop: 20, animationDelay: '120ms' }}>
+      <PanelHead
+        title="Fleet quality"
+        right={
+          avg != null
+            ? <span className="mono tnum" style={{ fontSize: 12, color: qColor(avg) }}>avg {Math.round(avg * 100)}%</span>
+            : <span className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>awaiting first scores</span>
+        }
+      />
+      <div style={{ padding: '4px 16px 12px' }}>
+        {rows.map((aw, i) => {
+          const score = aw.status?.evalScore ?? null;
+          const rel = aw.status?.evalReliability ?? null;
+          const tr = trends[aw.agent.id];
+          return (
+            <div key={aw.agent.id} style={{
+              display: 'flex', alignItems: 'center', gap: 12, padding: '9px 0',
+              borderBottom: i < rows.length - 1 ? '1px solid var(--line)' : 'none',
+            }}>
+              <Sigil id={aw.agent.id} size={20} />
+              <span style={{ fontSize: 12.5, color: 'var(--white)', width: 100, flexShrink: 0 }}>{aw.agent.name}</span>
+              <span className="mono tnum" style={{
+                fontSize: 14, width: 46, flexShrink: 0,
+                color: score != null ? qColor(score) : 'var(--txt-faint)',
+              }}>
+                {score != null ? Math.round(score * 100) + '%' : '—'}
+              </span>
+              <span className="mono" style={{ fontSize: 10, color: 'var(--txt-mid)', width: 56, flexShrink: 0 }}>
+                {rel != null ? 'rel ' + Math.round(rel * 100) + '%' : ''}
+              </span>
+              <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10 }}>
+                {tr?.delta != null && (
+                  <span className="mono" style={{ fontSize: 10, color: tr.delta >= 0 ? 'var(--ok)' : 'var(--err)' }}>
+                    {tr.delta >= 0 ? '▲' : '▼'} {Math.abs(Math.round(tr.delta * 100))}%
+                  </span>
+                )}
+                {tr && tr.points.length >= 2 && (
+                  <Sparkline data={tr.points} width={120} height={26} />
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+// ── trading eval loop (dedicated finance panel) ───────────────
+function TradingEvalCard({ fleet }: { fleet: AgentWithStatus[] }) {
+  const fin = fleet.find((a) => a.agent.id === 'finance');
+  const s = fin?.status;
+  if (!s || s.evalScore == null) return null;
+
+  const m = (s.evalSummary || '').match(/^\[([^\]]+)\]\s*/);
+  const tag = m ? m[1] : '';
+  const rationale = m ? (s.evalSummary as string).slice(m[0].length) : (s.evalSummary || '');
+  const independent = /cross-family judge/i.test(tag);
+  const judgeModel = independent ? tag.replace(/cross-family judge:\s*/i, '') : null;
+  const score = s.evalScore as number;
+  const badgeColor = independent ? '#3fe08f' : '#f2c14e';
+
+  return (
+    <section className="panel rise" style={{ marginTop: 16, animationDelay: '180ms' }}>
+      <PanelHead
+        title="Finance — eval loop"
+        right={<span className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>ai-trading-bot</span>}
+      />
+      <div style={{ padding: '14px 18px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ fontSize: 13.5, color: 'var(--txt)', lineHeight: 1.5 }}>{s.summary}</div>
+
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 28, flexWrap: 'wrap' }}>
+          <div>
+            <div className="label">Recap quality</div>
+            <div className="mono tnum" style={{ fontSize: 32, color: qColor(score), lineHeight: 1, marginTop: 4 }}>
+              {Math.round(score * 100)}<span style={{ fontSize: 14, color: 'var(--txt-dim)' }}>%</span>
+            </div>
+          </div>
+          <div>
+            <div className="label">Prediction reliability</div>
+            <div className="mono tnum" style={{
+              fontSize: 32, lineHeight: 1, marginTop: 4,
+              color: s.evalReliability != null ? qColor(s.evalReliability) : 'var(--txt-faint)',
+            }}>
+              {s.evalReliability != null ? Math.round(s.evalReliability * 100) + '%' : '—'}
+            </div>
+            {s.evalReliability == null && (
+              <div className="mono" style={{ fontSize: 9.5, color: 'var(--txt-faint)', marginTop: 3 }}>building history</div>
+            )}
+          </div>
+          <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+            <span className="mono" style={{
+              fontSize: 10, padding: '4px 10px', borderRadius: 99,
+              border: `1px solid ${badgeColor}44`, color: badgeColor, background: `${badgeColor}11`,
+            }}>
+              {independent ? `independently judged · ${judgeModel}` : 'self-judged (provisional)'}
+            </span>
+          </div>
+        </div>
+
+        {rationale && (
+          <div style={{
+            fontSize: 11.5, color: 'var(--txt-mid)', lineHeight: 1.5, fontStyle: 'italic',
+            borderLeft: '2px solid var(--line-2)', paddingLeft: 11,
+          }}>
+            ⚖ {rationale}
+          </div>
+        )}
+
+        <div className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>
+          {s.lastRun ? `last run ${new Date(s.lastRun).toLocaleString()} · ` : ''}grounded on real prices (yfinance)
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ── pixel M4 — drives across the garage floor ─────────────────
+// pixel-bmw-t.png is the flood-filled true-transparency cut: screen
+// blending breaks inside this animated wrapper, so the asset itself
+// carries the transparency. Keep image-rendering: pixelated.
+function PixelM4() {
+  return (
+    <div style={{ position: 'relative', height: 96, overflow: 'hidden', margin: '34px 0 0' }}>
+      {/* road */}
+      <div style={{
+        position: 'absolute', left: 0, right: 0, bottom: 18, height: 1,
+        background: 'linear-gradient(90deg, transparent, rgba(220,223,232,0.22) 18%, rgba(220,223,232,0.22) 82%, transparent)',
+      }} />
+      {/* car: outer = drive across, inner = pixel bob, img cropped from square ref */}
+      <div style={{
+        position: 'absolute', bottom: 14, left: 0,
+        animation: 'drive 32s linear infinite',
+        willChange: 'transform',
+      }}>
+        <div style={{ animation: 'bob 0.5s steps(2, jump-none) infinite' }}>
+          <div style={{ width: 170, height: 66, overflow: 'hidden', position: 'relative' }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/assets/pixel-bmw-t.png" alt="pixel BMW M4" style={{
+              width: 230, height: 230, objectFit: 'cover', display: 'block',
+              marginLeft: -30, marginTop: -80,
+              imageRendering: 'pixelated',
+            }} />
+          </div>
+          {/* headlight beam (car faces left) */}
+          <div style={{
+            position: 'absolute', left: -54, bottom: 14, width: 60, height: 10,
+            background: 'linear-gradient(270deg, rgba(244,245,248,0.35), transparent 85%)',
+            borderRadius: 99, filter: 'blur(1px)',
+          }} />
+        </div>
+      </div>
+      <div className="mono" style={{
+        position: 'absolute', right: 2, bottom: 0, fontSize: 9.5,
+        letterSpacing: '0.2em', color: 'var(--txt-faint)', textTransform: 'uppercase',
+        whiteSpace: 'nowrap',
+      }}>m4 competition · en route</div>
+    </div>
+  );
+}
+
+// ── main export ───────────────────────────────────────────────
+const REFRESH_MS = 15_000;
+
+export function FleetDashboard({ initial, growthStats, jobStats }: {
+  initial: AgentWithStatus[];
+  growthStats: GrowthStats | null;
+  jobStats: JobStats | null;
+}) {
+  const [fleet, setFleet] = useState(initial);
+  const [trends, setTrends] = useState<Record<string, { points: number[]; delta: number | null }>>({});
+
+  useEffect(() => {
+    const id = setInterval(async () => {
+      try {
+        const res = await fetch('/api/agents');
+        if (res.ok) setFleet(await res.json());
+      } catch { /* transient — next tick retries */ }
+    }, REFRESH_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await fetch('/api/trends');
+        if (!res.ok) return;
+        const arr: { agentId: string; points: number[]; delta: number | null }[] = await res.json();
+        const map: Record<string, { points: number[]; delta: number | null }> = {};
+        for (const t of arr) map[t.agentId] = { points: t.points, delta: t.delta };
+        setTrends(map);
+      } catch { /* trends are decorative; ignore fetch errors */ }
+    };
+    load();
+    const id = setInterval(load, REFRESH_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  const online = fleet.filter((a) => a.status?.state != null).length;
+  const needEye = fleet.filter((a) => a.status?.state === 'warn' || a.status?.state === 'error').length;
+
+  return (
+    <div style={{ maxWidth: 1320, margin: '0 auto', padding: '30px 28px 60px' }}>
+      <Header online={online} needEye={needEye} />
+      <Nav active="Fleet" />
+      <Hero fleet={fleet} />
+      <VizStrip growthStats={growthStats} />
+
+      {/* agent grid */}
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14 }}>
+        <h2 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--txt-mid)', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>
+          The fleet
+        </h2>
+        <span className="label">{fleet.length} units · auto-refresh {REFRESH_MS / 1000}s</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 16 }}>
+        {fleet.map((aw, i) => (
+          <AgentCard key={aw.agent.id} aw={aw} idx={i}
+            growthStats={growthStats} jobStats={jobStats} trend={trends[aw.agent.id]} />
+        ))}
+      </div>
+
+      <FleetQuality fleet={fleet} trends={trends} />
+      <TradingEvalCard fleet={fleet} />
+
+      <PixelM4 />
+      <p className="mono" style={{ fontSize: 11, color: 'var(--txt-faint)', margin: '18px 0 0', textAlign: 'center' }}>
+        CEO OS · Charles&rsquo; hub · built for the long game
+      </p>
+    </div>
+  );
+}

@@ -2,6 +2,7 @@
 
 import { useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { ChromeIcon } from '@/components/chrome';
 
 function LoginForm() {
   const [pw, setPw] = useState('');
@@ -32,23 +33,18 @@ function LoginForm() {
   return (
     <div style={{
       minHeight: '100dvh', display: 'flex', alignItems: 'center',
-      justifyContent: 'center', background: 'var(--bg)',
+      justifyContent: 'center',
     }}>
       <div style={{
         width: '100%', maxWidth: 360, padding: '0 24px',
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24,
       }}>
-        {/* logo */}
+        {/* wordmark */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-          <span style={{
-            width: 28, height: 28, borderRadius: 7, border: '1px solid rgba(47,212,230,0.4)',
-            display: 'grid', placeItems: 'center', color: '#2fd4e6', fontSize: 14,
-            boxShadow: '0 0 0 1px rgba(47,212,230,0.25), 0 0 22px -4px rgba(47,212,230,0.45)',
-          }}>◉</span>
-          <span style={{
-            fontFamily: 'var(--font-mono, monospace)', fontSize: 11,
-            letterSpacing: '0.3em', textTransform: 'uppercase', color: '#7c8a98',
-          }}>CEO OS</span>
+          <ChromeIcon src="/assets/crown.png" size={28} radius={7} />
+          <span className="label" style={{ fontSize: 11, letterSpacing: '0.3em', color: 'var(--txt-mid)' }}>
+            CEO&nbsp;OS
+          </span>
         </div>
 
         <form onSubmit={submit} style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -58,32 +54,24 @@ function LoginForm() {
             onChange={e => setPw(e.target.value)}
             placeholder="Access key"
             autoFocus
+            className="field mono"
             style={{
-              width: '100%', padding: '12px 14px',
-              background: '#0a0f15', border: `1px solid ${error ? '#ef535066' : '#15212c'}`,
-              borderRadius: 8, color: '#eef6f9', fontSize: 14,
-              fontFamily: 'var(--font-mono, monospace)',
-              outline: 'none',
+              width: '100%', padding: '12px 14px', fontSize: 14, textAlign: 'center',
+              borderColor: error ? 'rgba(242,92,92,0.45)' : undefined,
             }}
           />
           {error && (
-            <span style={{ fontSize: 12, color: '#ef5350', textAlign: 'center' }}>
-              Incorrect access key
+            <span className="mono" style={{ fontSize: 11.5, color: 'var(--err)', textAlign: 'center' }}>
+              incorrect access key
             </span>
           )}
           <button
             type="submit"
             disabled={loading || !pw}
-            style={{
-              padding: '11px', borderRadius: 8, border: 'none',
-              background: loading || !pw ? '#15212c' : '#2fd4e6',
-              color: loading || !pw ? '#4a5663' : '#06080b',
-              fontSize: 13, fontWeight: 600, cursor: loading || !pw ? 'default' : 'pointer',
-              transition: 'background 0.15s',
-              fontFamily: 'var(--font-sans, sans-serif)',
-            }}
+            className="btn-chrome"
+            style={{ padding: '12px 0' }}
           >
-            {loading ? 'Verifying…' : 'Enter fleet'}
+            {loading ? 'Verifying…' : 'Enter the fleet'}
           </button>
         </form>
       </div>
