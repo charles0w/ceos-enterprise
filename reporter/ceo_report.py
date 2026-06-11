@@ -7,6 +7,26 @@ Drop this file into any agent repo and call report() at the end of a run:
     report("finance", ok=True, summary="EOD recap done — NVDA +2.3%")
 
 ────────────────────────────────────────────────────────────────────────
+CARD DATA + PROFIT (optional)
+────────────────────────────────────────────────────────────────────────
+Give your dashboard card real numbers and a real progress bar:
+
+    report("commerce", ok=True, summary="Reconciling 14 open orders",
+           progress=0.62,                                  # 0..1 through the task
+           metrics=[{"label": "Orders / 24h", "value": 41},
+                    {"label": "GMV today", "value": 2840, "money": True},
+                    {"label": "Margin", "value": 31, "unit": "%"}])
+
+When a run REALIZES profit (a sale closed, a flip sold, a position exited),
+log it once — it funds The Garage on the dashboard (agent profit only):
+
+    report("commerce", ok=True, summary="Card flip closed",
+           profit=310.0, profit_note="PSA 10 Charizard flip")
+
+Send profit only for newly realized wins (losses are negative), never on
+routine heartbeats — the ledger is append-only and double-counts repeats.
+
+────────────────────────────────────────────────────────────────────────
 EVAL LAYER (optional)
 ────────────────────────────────────────────────────────────────────────
 `ok=True` only means the run *completed*. It says nothing about whether the
@@ -71,11 +91,20 @@ def report(
     eval_score: float | None = None,
     eval_reliability: float | None = None,
     eval_summary: str | None = None,
+    metrics: list[dict] | None = None,
+    progress: float | None = None,
+    profit: float | None = None,
+    profit_note: str | None = None,
 ) -> bool:
     """Post a status report to CEO Enterprise. Returns True on success.
 
     Pass eval_score / eval_reliability (both 0..1) and eval_summary to surface
     the run's QUALITY on the dashboard, not just whether it completed.
+
+    metrics: up to 3 dicts {"label", "value", "unit"?, "money"?, "signed"?}
+    shown on the agent's card. progress: 0..1 through the current task.
+    profit: realized profit/loss in USD for THIS run (send once per win,
+    never on heartbeats) — appended to the Garage ledger with profit_note.
     """
     if not REPORT_SECRET:
         print(f"[ceo_report] CEOS_REPORT_SECRET not set — skipping report for {agent_id}")
@@ -93,8 +122,16 @@ def report(
         status["evalReliability"] = round(_clamp01(eval_reliability), 4)
     if eval_summary is not None:
         status["evalSummary"] = eval_summary
+    if metrics is not None:
+        status["metrics"] = metrics[:3]
+    if progress is not None:
+        status["progress"] = round(_clamp01(progress), 4)
 
-    payload = {"agentId": agent_id, "status": status}
+    payload: dict = {"agentId": agent_id, "status": status}
+    if profit is not None and float(profit) != 0.0:
+        payload["profit"] = {"amount": float(profit)}
+        if profit_note:
+            payload["profit"]["note"] = profit_note
     data = json.dumps(payload).encode()
     req = urllib.request.Request(
         REPORT_URL,

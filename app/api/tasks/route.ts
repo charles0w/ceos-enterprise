@@ -1,0 +1,53 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { getRecentTasks, updateTaskStatus, TASK_STATUSES, type TaskStatus } from '@/lib/fleetTasks';
+
+export const dynamic = 'force-dynamic';
+
+// The delegation queue, readable by two audiences (middleware lets this
+// route through; auth happens here):
+//   - the dashboard (fleet_session cookie) — renders the Delegations panel
+//   - fleet agents (x-report-secret header) — poll their queue and report
+//     progress: GET /api/tasks?agentId=growth&status=queued, then
+//     PATCH { id, status: "in_progress" | "done" | "dropped" }
+function authorized(req: NextRequest): boolean {
+  const secret = req.headers.get('x-report-secret');
+  if (secret && process.env.REPORT_SECRET && secret === process.env.REPORT_SECRET) return true;
+  const session = req.cookies.get('fleet_session')?.value;
+  const expected = process.env.FLEET_PASSWORD ?? '';
+  return !!expected && session === expected;
+}
+
+export async function GET(req: NextRequest) {
+  if (!authorized(req)) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+  const p = req.nextUrl.searchParams;
+  const agentId = p.get('agentId') ?? undefined;
+  const statusParam = p.get('status') ?? undefined;
+  if (statusParam && !TASK_STATUSES.includes(statusParam as TaskStatus)) {
+    return NextResponse.json({ error: `status must be one of ${TASK_STATUSES.join(', ')}` }, { status: 400 });
+  }
+  const tasks = await getRecentTasks({
+    agentId,
+    status: statusParam as TaskStatus | undefined,
+    limit: Number(p.get('limit') ?? 20) || 20,
+  });
+  return NextResponse.json({ tasks });
+}
+
+export async function PATCH(req: NextRequest) {
+  if (!authorized(req)) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+  const body: { id?: number; status?: string } = await req.json().catch(() => ({}));
+  const id = Number(body.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    return NextResponse.json({ error: 'missing or invalid id' }, { status: 400 });
+  }
+  if (!body.status || !TASK_STATUSES.includes(body.status as TaskStatus)) {
+    return NextResponse.json({ error: `status must be one of ${TASK_STATUSES.join(', ')}` }, { status: 400 });
+  }
+  const found = await updateTaskStatus(id, body.status as TaskStatus);
+  if (!found) return NextResponse.json({ error: `no task #${id}` }, { status: 404 });
+  return NextResponse.json({ ok: true });
+}

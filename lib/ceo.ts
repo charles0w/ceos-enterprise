@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { sql } from '@vercel/postgres';
 import { getFleet } from './registry';
+import { ensureTasksTable } from './fleetTasks';
 import { searchMemory, getMemory, listMemory, upsertMemory } from './aiMemory';
 
 // The "CEO" — head orchestrator of Charles's AI fleet. Runs on Opus 4.8 with a
@@ -99,20 +100,6 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
 ];
-
-async function ensureTasksTable(): Promise<void> {
-  await sql`
-    CREATE TABLE IF NOT EXISTS fleet_tasks (
-      id          BIGSERIAL PRIMARY KEY,
-      agent_id    TEXT NOT NULL,
-      title       TEXT NOT NULL,
-      spec        TEXT NOT NULL,
-      status      TEXT NOT NULL DEFAULT 'queued',
-      created_by  TEXT NOT NULL DEFAULT 'ceo',
-      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-}
 
 async function runTool(name: string, input: Record<string, unknown>): Promise<string> {
   switch (name) {

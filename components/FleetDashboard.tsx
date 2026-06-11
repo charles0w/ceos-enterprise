@@ -6,9 +6,11 @@
 // agent cards driven by getFleet(), and the pixel M4 strip.
 
 import { useState, useEffect, useRef } from 'react';
-import type { AgentWithStatus } from '@/lib/types';
+import type { AgentWithStatus, AgentMetric } from '@/lib/types';
 import type { GrowthStats } from '@/lib/growth';
 import type { JobStats } from '@/lib/jobs';
+import type { GarageData } from '@/lib/garage';
+import type { FleetTask } from '@/lib/fleetTasks';
 import {
   CHROME_GRAD, StatusDot, ChromeIcon, GlyphTile, Sparkline, ProgressBar,
   Kpi, PanelHead, useClock, useCountUp, useRotator, fmtMoney, fmtNum, greetingFor,
@@ -82,11 +84,12 @@ function hashProgress(seed: string): number {
 }
 
 // ── the garage — what all of this is for ──────────────────────
-// progress values are placeholders; wire to real savings/revenue
-const GARAGE = [
-  { id: '812',    label: 'Ferrari 812 Superfast', sub: 'Rosso Corsa',        progress: 0.06 },
-  { id: 'm4',     label: 'BMW M4 Competition',    sub: 'first key',          progress: 0.22, img: '/assets/m-logo.png' },
-  { id: 'studio', label: 'Highrise studio',       sub: 'floor 40+, skyline', progress: 0.11 },
+// Real targets + prices live in lib/garage.ts (progress = agent profit /
+// price). This fallback only renders if the DB is unreachable.
+const GARAGE_FALLBACK = [
+  { id: '812',    label: 'Ferrari 812 Superfast', sub: 'Rosso Corsa',        progress: 0.06, price: null as number | null },
+  { id: 'm4',     label: 'BMW M4 Competition',    sub: 'first key',          progress: 0.22, price: null as number | null, img: '/assets/m-logo.png' },
+  { id: 'studio', label: 'Highrise studio',       sub: 'floor 40+, skyline', progress: 0.11, price: null as number | null },
 ];
 
 // ── quiet reminders — rotate slowly, stay out of the way ──────
@@ -269,10 +272,20 @@ function Throughput({ data, height = 64 }: { data: number[]; height?: number }) 
 }
 
 // ── viz strip: the garage / pipeline funnel / live log ────────
-function Garage() {
+// Sub-1% real progress still deserves a visible number — round to one
+// decimal instead of flooring a first win to "0%".
+function fmtPct(p: number): string {
+  const pct = p * 100;
+  if (pct === 0) return '0%';
+  if (pct < 1) return pct.toFixed(1) + '%';
+  return Math.round(pct) + '%';
+}
+
+function Garage({ garage }: { garage: GarageData | null }) {
+  const targets = garage ? garage.targets : GARAGE_FALLBACK;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '15px 16px 17px' }}>
-      {GARAGE.map((t) => (
+      {targets.map((t) => (
         <div key={t.id}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 2, minWidth: 0 }}>
             <span style={{
@@ -284,15 +297,19 @@ function Garage() {
               <img src={t.img} alt="" className="blend" style={{ height: 13, width: 'auto', display: 'block', opacity: 0.9, alignSelf: 'center', flexShrink: 0 }} />
             )}
             <span className="mono tnum" style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--silver)', flexShrink: 0 }}>
-              {Math.round(t.progress * 100)}%
+              {fmtPct(t.progress)}
             </span>
           </div>
-          <div className="mono" style={{ fontSize: 10, color: 'var(--txt-dim)', marginBottom: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.sub}</div>
+          <div className="mono" style={{ fontSize: 10, color: 'var(--txt-dim)', marginBottom: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {t.sub}{t.price != null ? ` · ${fmtMoney(t.price)}` : ''}
+          </div>
           <ProgressBar value={t.progress} active={false} height={5} />
         </div>
       ))}
       <div className="mono" style={{ fontSize: 9.5, color: 'var(--txt-faint)', letterSpacing: '0.06em' }}>
-        progress placeholders — wire to savings / revenue
+        {garage
+          ? `funded by agent profit only · ${fmtMoney(garage.total)} earned to date`
+          : 'progress placeholders — ledger unreachable'}
       </div>
     </div>
   );
@@ -367,7 +384,7 @@ function LogFeed({ height = 236 }: { height?: number }) {
   );
 }
 
-function VizStrip({ growthStats }: { growthStats: GrowthStats | null }) {
+function VizStrip({ growthStats, garage }: { growthStats: GrowthStats | null; garage: GarageData | null }) {
   const pipeline = {
     scraped: growthStats?.total ?? 0,
     sites:   growthStats?.sitesBuilt ?? 0,
@@ -381,8 +398,12 @@ function VizStrip({ growthStats }: { growthStats: GrowthStats | null }) {
       gap: 16, marginBottom: 20,
     }}>
       <section className="panel rise" style={{ animationDelay: '100ms' }}>
-        <PanelHead title="The garage" right={<span className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>what it&rsquo;s for</span>} />
-        <Garage />
+        <PanelHead title="The garage" right={
+          garage
+            ? <span className="mono tnum" style={{ fontSize: 10.5, color: 'var(--silver)' }}>{fmtMoney(garage.total)} earned</span>
+            : <span className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>what it&rsquo;s for</span>
+        } />
+        <Garage garage={garage} />
       </section>
       <section className="panel rise" style={{ animationDelay: '160ms' }}>
         <PanelHead title="Growth pipeline" right={<span className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>berkeley-biz</span>} />
@@ -397,9 +418,7 @@ function VizStrip({ growthStats }: { growthStats: GrowthStats | null }) {
 }
 
 // ── agent card ────────────────────────────────────────────────
-interface MetricDef { label: string; value: number; unit?: string; money?: boolean; signed?: boolean }
-
-function MetricCell({ m }: { m: MetricDef }) {
+function MetricCell({ m }: { m: AgentMetric }) {
   let display: string;
   if (m.money) display = fmtMoney(m.value);
   else if (m.signed) display = (m.value >= 0 ? '+' : '') + m.value + (m.unit || '');
@@ -444,12 +463,13 @@ function QualityRow({ score, reliability, note }:
   );
 }
 
-function AgentCard({ aw, idx, growthStats, jobStats, trend }: {
+function AgentCard({ aw, idx, growthStats, jobStats, trend, queued }: {
   aw: AgentWithStatus;
   idx: number;
   growthStats: GrowthStats | null;
   jobStats: JobStats | null;
   trend?: { points: number[]; delta: number | null };
+  queued: number;
 }) {
   const { agent, status } = aw;
   const cfg = AGENT_CFG[agent.id] ?? { uptime: null };
@@ -458,8 +478,12 @@ function AgentCard({ aw, idx, growthStats, jobStats, trend }: {
   const active = status != null && status.state != null;
   const dead = !active;
 
-  let metrics: MetricDef[] = [];
-  if (agent.id === 'growth' && growthStats) {
+  // self-reported metrics win; SQL-derived stats remain the fallback
+  // until an agent's repo adopts the structured report fields
+  let metrics: AgentMetric[] = [];
+  if (status?.metrics?.length) {
+    metrics = status.metrics.slice(0, 3);
+  } else if (agent.id === 'growth' && growthStats) {
     metrics = [
       { label: 'Leads', value: growthStats.total },
       { label: 'Sites built', value: growthStats.sitesBuilt ?? 0 },
@@ -473,6 +497,7 @@ function AgentCard({ aw, idx, growthStats, jobStats, trend }: {
     ];
   }
 
+  const progress = status ? status.progress ?? hashProgress(agent.id + status.lastRun) : 0;
   const sparkData = active ? SPARKS[agent.id] ?? null : null;
 
   return (
@@ -528,10 +553,10 @@ function AgentCard({ aw, idx, growthStats, jobStats, trend }: {
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{status.summary}</span>
               </span>
               <span className="mono tnum" style={{ fontSize: 11, color: 'var(--silver)', flexShrink: 0 }}>
-                {Math.round(hashProgress(agent.id + status.lastRun) * 100)}%
+                {Math.round(progress * 100)}%
               </span>
             </div>
-            <ProgressBar value={hashProgress(agent.id + status.lastRun)} active={active} />
+            <ProgressBar value={progress} active={active} />
           </div>
         ) : (
           <div style={{
@@ -541,6 +566,13 @@ function AgentCard({ aw, idx, growthStats, jobStats, trend }: {
             <span className="mono" style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
               {cfg.note || (status ? `last run ${new Date(status.lastRun).toLocaleDateString()}` : 'no active task')}
             </span>
+          </div>
+        )}
+
+        {/* delegated work waiting in the queue */}
+        {queued > 0 && (
+          <div className="mono" style={{ marginTop: 8, fontSize: 10, color: 'var(--txt-mid)', letterSpacing: '0.04em' }}>
+            ◇ {queued} task{queued === 1 ? '' : 's'} queued from the CEO
           </div>
         )}
 
@@ -595,6 +627,75 @@ function AgentCard({ aw, idx, growthStats, jobStats, trend }: {
         </div>
       </div>
     </div>
+  );
+}
+
+// ── delegations — what the CEO has handed to the fleet ────────
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60_000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+const TASK_META: Record<string, { color: string; label: string; pulse?: boolean; dim?: boolean }> = {
+  queued:      { color: 'var(--silver)', label: 'queued' },
+  in_progress: { color: '#3fe08f',       label: 'in progress', pulse: true },
+  done:        { color: '#3fe08f',       label: 'done', dim: true },
+  dropped:     { color: 'var(--txt-faint)', label: 'dropped', dim: true },
+};
+
+function Delegations({ tasks, nameFor }: { tasks: FleetTask[]; nameFor: (id: string) => string }) {
+  const open = tasks.filter((t) => t.status === 'queued' || t.status === 'in_progress').length;
+  return (
+    <section className="panel rise" style={{ marginTop: 20, animationDelay: '80ms' }}>
+      <PanelHead
+        title="Delegations"
+        right={
+          tasks.length > 0
+            ? <span className="mono tnum" style={{ fontSize: 10, color: open > 0 ? 'var(--silver)' : 'var(--txt-faint)' }}>{open} open</span>
+            : <a href="/ceo" className="mono" style={{ fontSize: 10.5, color: 'var(--silver)' }}>ask the CEO →</a>
+        }
+      />
+      {tasks.length === 0 ? (
+        <div style={{ padding: '16px 16px 20px', textAlign: 'center' }}>
+          <span className="mono" style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
+            nothing delegated yet — hand the CEO some work and it lands here
+          </span>
+        </div>
+      ) : (
+        <div style={{ padding: '4px 16px 10px' }}>
+          {tasks.map((t, i) => {
+            const tm = TASK_META[t.status] ?? TASK_META.queued;
+            return (
+              <div key={t.id} title={t.spec} style={{
+                display: 'flex', alignItems: 'center', gap: 12, padding: '9px 0',
+                borderBottom: i < tasks.length - 1 ? '1px solid var(--line)' : 'none',
+                opacity: tm.dim ? 0.55 : 1,
+              }}>
+                <Sigil id={t.agentId} size={20} />
+                <span style={{ fontSize: 12.5, color: 'var(--white)', width: 100, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {nameFor(t.agentId)}
+                </span>
+                <span style={{ fontSize: 12.5, color: 'var(--txt)', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {t.title}
+                </span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                  <StatusDot color={tm.color} pulse={tm.pulse} size={6} />
+                  <span className="label" style={{ color: tm.color, fontSize: 9 }}>{tm.label}</span>
+                </span>
+                <span className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)', width: 64, textAlign: 'right', flexShrink: 0 }} suppressHydrationWarning>
+                  {relativeTime(t.createdAt)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -777,12 +878,15 @@ function PixelM4() {
 // ── main export ───────────────────────────────────────────────
 const REFRESH_MS = 15_000;
 
-export function FleetDashboard({ initial, growthStats, jobStats }: {
+export function FleetDashboard({ initial, growthStats, jobStats, garage, initialTasks }: {
   initial: AgentWithStatus[];
   growthStats: GrowthStats | null;
   jobStats: JobStats | null;
+  garage: GarageData | null;
+  initialTasks: FleetTask[];
 }) {
   const [fleet, setFleet] = useState(initial);
+  const [tasks, setTasks] = useState(initialTasks);
   const [trends, setTrends] = useState<Record<string, { points: number[]; delta: number | null }>>({});
 
   useEffect(() => {
@@ -790,6 +894,10 @@ export function FleetDashboard({ initial, growthStats, jobStats }: {
       try {
         const res = await fetch('/api/agents');
         if (res.ok) setFleet(await res.json());
+      } catch { /* transient — next tick retries */ }
+      try {
+        const res = await fetch('/api/tasks');
+        if (res.ok) setTasks((await res.json()).tasks ?? []);
       } catch { /* transient — next tick retries */ }
     }, REFRESH_MS);
     return () => clearInterval(id);
@@ -813,13 +921,18 @@ export function FleetDashboard({ initial, growthStats, jobStats }: {
 
   const online = fleet.filter((a) => a.status?.state != null).length;
   const needEye = fleet.filter((a) => a.status?.state === 'warn' || a.status?.state === 'error').length;
+  const queuedByAgent: Record<string, number> = {};
+  for (const t of tasks) {
+    if (t.status === 'queued') queuedByAgent[t.agentId] = (queuedByAgent[t.agentId] ?? 0) + 1;
+  }
+  const nameFor = (id: string) => fleet.find((a) => a.agent.id === id)?.agent.name ?? id;
 
   return (
     <div style={{ maxWidth: 1320, margin: '0 auto', padding: '30px 28px 60px' }}>
       <Header online={online} needEye={needEye} />
       <Nav active="Fleet" />
       <Hero fleet={fleet} />
-      <VizStrip growthStats={growthStats} />
+      <VizStrip growthStats={growthStats} garage={garage} />
 
       {/* agent grid */}
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14 }}>
@@ -831,10 +944,12 @@ export function FleetDashboard({ initial, growthStats, jobStats }: {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 16 }}>
         {fleet.map((aw, i) => (
           <AgentCard key={aw.agent.id} aw={aw} idx={i}
-            growthStats={growthStats} jobStats={jobStats} trend={trends[aw.agent.id]} />
+            growthStats={growthStats} jobStats={jobStats} trend={trends[aw.agent.id]}
+            queued={queuedByAgent[aw.agent.id] ?? 0} />
         ))}
       </div>
 
+      <Delegations tasks={tasks} nameFor={nameFor} />
       <FleetQuality fleet={fleet} trends={trends} />
       <TradingEvalCard fleet={fleet} />
 

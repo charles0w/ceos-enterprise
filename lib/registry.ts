@@ -26,6 +26,9 @@ async function ensureTable() {
   await sql`ALTER TABLE agent_status ADD COLUMN IF NOT EXISTS eval_score REAL`;
   await sql`ALTER TABLE agent_status ADD COLUMN IF NOT EXISTS eval_reliability REAL`;
   await sql`ALTER TABLE agent_status ADD COLUMN IF NOT EXISTS eval_summary TEXT`;
+  // Migration for the structured card data (metrics/progress).
+  await sql`ALTER TABLE agent_status ADD COLUMN IF NOT EXISTS metrics JSONB`;
+  await sql`ALTER TABLE agent_status ADD COLUMN IF NOT EXISTS progress REAL`;
 }
 
 export async function getFleet(): Promise<AgentWithStatus[]> {
@@ -78,6 +81,8 @@ async function getAllStatuses(): Promise<Record<string, AgentStatus>> {
           evalScore: r.eval_score ?? undefined,
           evalReliability: r.eval_reliability ?? undefined,
           evalSummary: r.eval_summary ?? undefined,
+          metrics: r.metrics ?? undefined,
+          progress: r.progress ?? undefined,
         } as AgentStatus,
       ])
     );
@@ -99,10 +104,11 @@ export async function upsertStatus(agentId: string, status: AgentStatus): Promis
   try {
     await ensureTable();
     await sql`
-      INSERT INTO agent_status (id, state, last_run, summary, ok, eval_score, eval_reliability, eval_summary, updated_at)
+      INSERT INTO agent_status (id, state, last_run, summary, ok, eval_score, eval_reliability, eval_summary, metrics, progress, updated_at)
       VALUES (
         ${agentId}, ${status.state}, ${status.lastRun}, ${status.summary}, ${status.ok},
-        ${status.evalScore ?? null}, ${status.evalReliability ?? null}, ${status.evalSummary ?? null}, now()
+        ${status.evalScore ?? null}, ${status.evalReliability ?? null}, ${status.evalSummary ?? null},
+        ${status.metrics ? JSON.stringify(status.metrics) : null}, ${status.progress ?? null}, now()
       )
       ON CONFLICT (id) DO UPDATE SET
         state = EXCLUDED.state,
@@ -112,6 +118,8 @@ export async function upsertStatus(agentId: string, status: AgentStatus): Promis
         eval_score = EXCLUDED.eval_score,
         eval_reliability = EXCLUDED.eval_reliability,
         eval_summary = EXCLUDED.eval_summary,
+        metrics = EXCLUDED.metrics,
+        progress = EXCLUDED.progress,
         updated_at = now()
     `;
   } catch {

@@ -7,11 +7,27 @@ export interface Agent {
   schedule: string;
 }
 
+// One headline number an agent reports for its dashboard card (max 3 shown).
+// money → "$2.8k"; signed → "+1.8%" (silver) / "-0.4%" (red); unit appended.
+export interface AgentMetric {
+  label: string;
+  value: number;
+  unit?: string;
+  money?: boolean;
+  signed?: boolean;
+}
+
 export interface AgentStatus {
   state: 'ok' | 'warn' | 'error';
   lastRun: string;
   summary: string;
   ok: boolean;
+  // ── Structured card data (optional, backward-compatible) ────
+  // metrics: up to 3 headline numbers; progress: 0..1 through the
+  // current task (drives the card's progress bar — omitted means the
+  // dashboard derives a stable placeholder).
+  metrics?: AgentMetric[];
+  progress?: number;
   // ── Eval layer (optional, backward-compatible) ──────────────
   // A run that merely *completed* sets ok=true. These fields say whether
   // the output was actually any GOOD. Populated by reporter/ceo_report.py's
