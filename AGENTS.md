@@ -27,6 +27,8 @@ Agents report via `POST /api/report` (header `x-report-secret`) — client: `rep
 The CEO's `delegate_task` writes to `fleet_tasks`; the dashboard shows them in the Delegations panel. Agents service their queue via `/api/tasks` (same `x-report-secret`):
 `GET /api/tasks?agentId=<id>&status=queued` → pick up work, then `PATCH /api/tasks {id, status: "in_progress" | "done" | "dropped"}`.
 
+Drop-in clients live in the agent repos (`fleet_tasks.py` — canonical copy in `reporter/fleet_tasks.py`; `scripts/fleet-tasks.ts` in ceos-jobs): `python fleet_tasks.py list | start <id> | done <id> | drop <id>`. A working session in an agent repo should check its queue at the start. The CEO itself has `list_tasks` / `update_task_status` / `record_profit` tools — `record_profit` is for Charles-confirmed realized money only (never estimates, paper results, or Growth closes, which are auto-counted). Card flips are logged with `card-arbitrage/flips.py` (`bought` / `sold` / `flip` / `list`), which posts realized net profit as `commerce`.
+
 **Required env**: `ANTHROPIC_API_KEY` (CEO), `REPORT_SECRET` (sync + status), `POSTGRES_URL` (auto on Vercel), `GITHUB_TOKEN` (fine-grained PAT, Contents:write on `obi-secondbrain` — enables the session auto-push).
 
 To pull context locally: `node /Users/charlesow/Desktop/obi-secondbrain/ai-memory/scripts/recall.mjs "<query>"`.

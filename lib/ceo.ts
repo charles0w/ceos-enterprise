@@ -1,7 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { sql } from '@vercel/postgres';
 import { getFleet } from './registry';
-import { ensureTasksTable } from './fleetTasks';
+import { ensureTasksTable, getRecentTasks, updateTaskStatus, TASK_STATUSES, type TaskStatus } from './fleetTasks';
+import { recordProfit } from './garage';
+import { AGENTS } from './agents';
 import { searchMemory, getMemory, listMemory, upsertMemory } from './aiMemory';
 
 // The "CEO" — head orchestrator of Charles's AI fleet. Runs on Opus 4.8 with a
@@ -34,6 +36,8 @@ Operating principles:
 - Truthful tailoring, human-in-the-loop for irreversible actions, low-ToS-risk — honor Charles's operating principles (read them via recall_memory if unsure).
 - When you delegate, write a crisp task spec the owning agent can act on, and tell Charles what you delegated.
 - Only append_memory for genuinely durable, reusable knowledge (a decision, a stable preference, a new fact about the fleet) — not for transient chatter.
+- Track your delegations: call list_tasks before delegating (avoid duplicate tasks) and whenever Charles asks what's open. Agents service their own queue (fleet_tasks clients in their repos); use update_task_status only when Charles confirms an outcome.
+- The Garage is funded by REALIZED agent profit only. record_profit solely when Charles states money actually settled — never estimates, never paper-trading results, and never Growth's closed deals (those are counted automatically from the businesses table).
 - Current Claude models: Opus 4.8, Sonnet 4.6, Haiku 4.5. Never reference retired model names.`;
 
 const TOOLS: Anthropic.Tool[] = [
@@ -83,6 +87,46 @@ const TOOLS: Anthropic.Tool[] = [
         spec: { type: 'string', description: 'Actionable task description with the context the agent needs' },
       },
       required: ['agentId', 'title', 'spec'],
+    },
+  },
+  {
+    name: 'list_tasks',
+    description:
+      "See the delegation queue — tasks already assigned to fleet agents with their status (queued / in_progress / done / dropped). Check it before delegating to avoid duplicates, and to answer 'what's still open?'.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        agentId: { type: 'string', description: 'Optional: only this agent’s tasks' },
+        status: { type: 'string', description: 'Optional filter: queued | in_progress | done | dropped' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'update_task_status',
+    description:
+      "Set a delegated task's status on Charles's behalf (he confirms it shipped → done; it's obsolete → dropped). Agents normally update their own queue — only use this when Charles states the outcome.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'number', description: 'The task id from list_tasks' },
+        status: { type: 'string', description: 'queued | in_progress | done | dropped' },
+      },
+      required: ['taskId', 'status'],
+    },
+  },
+  {
+    name: 'record_profit',
+    description:
+      "Append a REALIZED profit or loss (USD) to The Garage ledger on behalf of a fleet agent — only when Charles confirms money actually settled (a card flip sold, an order's margin realized). NEVER for estimates or paper-trading results, and NEVER for Growth's closed deals (counted automatically from the businesses table — recording them here would double-count).",
+    input_schema: {
+      type: 'object',
+      properties: {
+        agentId: { type: 'string', description: 'Fleet agent the profit belongs to, e.g. commerce, finance' },
+        amount: { type: 'number', description: 'Realized USD amount; losses are negative' },
+        note: { type: 'string', description: 'Short provenance note, e.g. "card flip: PSA 10 Charizard"' },
+      },
+      required: ['agentId', 'amount'],
     },
   },
   {
@@ -138,6 +182,55 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<st
         RETURNING id
       `;
       return `Delegated to '${input.agentId}' as task #${rows[0]?.id}: ${input.title}`;
+    }
+    case 'list_tasks': {
+      const status = input.status ? String(input.status) : undefined;
+      if (status && !TASK_STATUSES.includes(status as TaskStatus)) {
+        return `Invalid status '${status}' — use one of ${TASK_STATUSES.join(', ')}.`;
+      }
+      const tasks = await getRecentTasks({
+        agentId: input.agentId ? String(input.agentId) : undefined,
+        status: status as TaskStatus | undefined,
+        limit: 15,
+      });
+      if (!tasks.length) return 'The queue is clear — no matching delegated tasks.';
+      const ageOf = (iso: string) => {
+        const h = Math.floor((Date.now() - new Date(iso).getTime()) / 3_600_000);
+        return h < 1 ? '<1h' : h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`;
+      };
+      return tasks
+        .map((t) => `#${t.id} [${t.status}] ${t.agentId} · ${t.title} (${ageOf(t.createdAt)} ago)`)
+        .join('\n');
+    }
+    case 'update_task_status': {
+      const status = String(input.status ?? '');
+      if (!TASK_STATUSES.includes(status as TaskStatus)) {
+        return `Invalid status '${status}' — use one of ${TASK_STATUSES.join(', ')}.`;
+      }
+      const id = Number(input.taskId);
+      if (!Number.isFinite(id) || id <= 0) return 'Invalid taskId.';
+      const found = await updateTaskStatus(id, status as TaskStatus);
+      return found ? `Task #${id} → ${status}.` : `No task #${id} in the queue.`;
+    }
+    case 'record_profit': {
+      const agentId = String(input.agentId ?? '');
+      if (!AGENTS.some((a) => a.id === agentId)) {
+        return `Unknown agent '${agentId}' — fleet ids: ${AGENTS.map((a) => a.id).join(', ')}.`;
+      }
+      if (agentId === 'growth') {
+        return 'Refused: Growth closes are counted into The Garage automatically from the businesses table — recording them here would double-count.';
+      }
+      if (agentId === 'lambos-trader') {
+        return 'Refused: Lambos Trader is on a paper trial — paper results are not realized profit.';
+      }
+      const amount = Number(input.amount);
+      if (!Number.isFinite(amount) || amount === 0 || Math.abs(amount) > 1_000_000) {
+        return 'Invalid amount — a non-zero USD value (|amount| ≤ 1M); losses are negative.';
+      }
+      const note = input.note ? String(input.note).slice(0, 200) : undefined;
+      await recordProfit(agentId, Math.round(amount * 100) / 100, note);
+      const sign = amount >= 0 ? '+' : '';
+      return `Recorded ${sign}$${Math.abs(amount).toFixed(2)}${amount < 0 ? ' loss' : ''} for ${agentId} — The Garage ledger moved.`;
     }
     case 'append_memory': {
       await upsertMemory({
