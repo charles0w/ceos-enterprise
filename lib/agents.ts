@@ -23,7 +23,7 @@ export const AGENTS: Agent[] = [
     role: 'Discord-alert options copy-trading (paper)',
     ownerRepo: 'lambos-trader',
     skills: ['discord-ingest', 'ocr-parse', 'risk-sizing', 'paper-exec'],
-    schedule: 'paper trial · daily report 1:05pm PT',
+    schedule: 'daily paper + evals → live Aug 20',
   },
   {
     id: 'growth',
