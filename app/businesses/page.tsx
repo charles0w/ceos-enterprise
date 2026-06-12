@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { sql } from '@vercel/postgres';
+import { Nav, PageHeader } from '@/components/Shell';
 import { BusinessPageTabs } from '@/components/BusinessPageTabs';
 
 interface Business {
@@ -45,41 +46,46 @@ async function getBusinesses(): Promise<Business[]> {
 export default async function BusinessesPage() {
   const businesses = await getBusinesses();
 
-  const counts = {
-    total: businesses.length,
-    sitesBuilt: businesses.filter(b => b.demo_url).length,
-    emailed: businesses.filter(b => b.outreach_sent_at).length,
-    replied: businesses.filter(b => b.outreach_replied_at).length,
-    closed: businesses.filter(b => b.closed_amount).length,
-  };
+  const closedRows = businesses.filter(b => b.closed_amount);
+  const closedTotal = closedRows.reduce((s, b) => s + Number(b.closed_amount ?? 0), 0);
+
+  const funnel = [
+    { label: 'scraped',     value: businesses.length },
+    { label: 'sites built', value: businesses.filter(b => b.demo_url).length },
+    { label: 'emailed',     value: businesses.filter(b => b.outreach_sent_at).length },
+    { label: 'replied',     value: businesses.filter(b => b.outreach_replied_at).length, color: 'var(--gold)' },
+    { label: 'closed',      value: closedRows.length, color: 'var(--ok)',
+      suffix: closedTotal > 0 ? ` · $${closedTotal.toLocaleString()}` : undefined },
+  ];
 
   return (
-    <main style={{ maxWidth: 1300, margin: '0 auto', padding: 24 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, marginBottom: 4 }}>
-        <a href="/" style={{ color: '#555', fontSize: 13, textDecoration: 'none' }}>← fleet</a>
-        <h1 style={{ margin: 0 }}>Growth pipeline</h1>
-      </div>
-      <p style={{ color: '#888', marginTop: 0, marginBottom: 20 }}>
-        berkeley-biz-websites · {counts.total} leads
-      </p>
+    <main className="page" style={{ maxWidth: 1320, margin: '0 auto' }}>
+      <PageHeader
+        title="Growth pipeline."
+        sub={`berkeley-biz-websites · ${businesses.length} leads under management`}
+      />
+      <Nav active="Pipeline" />
 
-      {/* Summary bar */}
-      <div style={{
-        display: 'flex', gap: 24, marginBottom: 24, padding: '12px 16px',
-        background: '#0a0a0a', border: '1px solid #1f1f1f', borderRadius: 10, fontSize: 13,
+      {/* funnel strip — color only where status earns it */}
+      <section className="panel edge rise" style={{
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))',
+        gap: 18, padding: '18px 20px', marginBottom: 18,
       }}>
-        {[
-          { label: 'scraped',    value: counts.total,     color: '#fff' },
-          { label: 'sites built', value: counts.sitesBuilt, color: counts.sitesBuilt > 0 ? '#f59e0b' : '#555' },
-          { label: 'emailed',   value: counts.emailed,   color: counts.emailed > 0 ? '#3b82f6' : '#555' },
-          { label: 'replied',   value: counts.replied,   color: counts.replied > 0 ? '#a78bfa' : '#555' },
-          { label: 'closed',    value: counts.closed,    color: counts.closed > 0 ? '#22c55e' : '#555' },
-        ].map(({ label, value, color }) => (
-          <span key={label} style={{ color: '#888' }}>
-            <span style={{ color, fontWeight: 600 }}>{value}</span> {label}
-          </span>
+        {funnel.map(stage => (
+          <div key={stage.label}>
+            <div className="label">{stage.label}</div>
+            <div className="mono tnum" style={{
+              fontSize: 24, fontWeight: 500, marginTop: 6, lineHeight: 1,
+              color: stage.value > 0 ? (stage.color ?? 'var(--white)') : 'var(--txt-faint)',
+            }}>
+              {stage.value}
+              {stage.suffix && (
+                <span style={{ fontSize: 12, color: 'var(--txt-mid)' }}>{stage.suffix}</span>
+              )}
+            </div>
+          </div>
         ))}
-      </div>
+      </section>
 
       <BusinessPageTabs businesses={businesses} />
     </main>

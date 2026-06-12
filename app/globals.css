@@ -237,10 +237,21 @@ a { color: var(--silver); text-decoration: none; }
   gap: 16px;
   align-items: start;
 }
+.queue-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 20px;
+  align-items: start;
+}
+
+/* hairline that brightens on hover — link cards (demo gallery, etc.) */
+.card-hover { transition: border-color 0.18s ease; }
+.card-hover:hover { border-color: rgba(215,218,226,0.35); }
 
 @media (max-width: 1000px) {
   .viz-strip { grid-template-columns: 1fr; }
   .studio-grid { grid-template-columns: 1fr; }
+  .queue-grid { grid-template-columns: 1fr; }
   /* viewport-pinned panes scroll the page instead on small screens */
   .studio-pane { max-height: none !important; height: auto !important; min-height: 0 !important; }
 }

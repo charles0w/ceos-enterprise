@@ -93,13 +93,14 @@ If you want it, just reply "yes" and I'll handle the rest. If not, no worries �
 charles@charlesbuilds.online`;
 }
 
+// hex mirrors of the globals.css tokens — literal so the badge border can carry an alpha suffix
 function statusBadge(biz: Business) {
-  if (biz.closed_amount) return { label: `closed $${biz.closed_amount}`, color: '#22c55e' };
-  if (biz.outreach_replied_at) return { label: 'replied', color: '#a78bfa' };
-  if (biz.outreach_sent_at) return { label: 'emailed', color: '#3b82f6' };
-  if (biz.demo_url) return { label: 'site built', color: '#f59e0b' };
-  if (biz.status === 'error') return { label: 'error', color: '#ef4444' };
-  return { label: 'scraped', color: '#374151' };
+  if (biz.closed_amount) return { label: `closed $${biz.closed_amount}`, color: '#3fe08f' };
+  if (biz.outreach_replied_at) return { label: 'replied', color: '#d9b97c' };
+  if (biz.outreach_sent_at) return { label: 'emailed', color: '#d7dae2' };
+  if (biz.demo_url) return { label: 'site built', color: '#9a9da8' };
+  if (biz.status === 'error') return { label: 'error', color: '#f25c5c' };
+  return { label: 'scraped', color: '#54565e' };
 }
 
 function relTime(iso: string): string {
@@ -115,12 +116,15 @@ export function BusinessTable({ businesses }: { businesses: Business[] }) {
   return (
     <>
       {/* Table */}
-      <div style={{ overflowX: 'auto' }}>
+      <div className="panel rise" style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
-            <tr style={{ borderBottom: '1px solid #1f1f1f', color: '#555', textAlign: 'left' }}>
+            <tr style={{ borderBottom: '1px solid var(--line)', textAlign: 'left' }}>
               {['Business', 'Category', 'Rating', 'Phone', 'Status', 'Sent', 'Demo', 'Email'].map(h => (
-                <th key={h} style={{ padding: '8px 12px', fontWeight: 500 }}>{h}</th>
+                <th key={h} className="mono" style={{
+                  padding: '11px 14px', fontWeight: 400, fontSize: 10,
+                  letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--txt-dim)',
+                }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -132,59 +136,58 @@ export function BusinessTable({ businesses }: { businesses: Business[] }) {
                 <tr
                   key={biz.place_id}
                   style={{
-                    borderBottom: '1px solid #111',
-                    background: selected?.place_id === biz.place_id ? '#0f1620' : 'transparent',
+                    borderBottom: '1px solid var(--line)',
+                    background: selected?.place_id === biz.place_id ? 'rgba(255,255,255,0.03)' : 'transparent',
                   }}
                 >
-                  <td style={{ padding: '10px 12px' }}>
-                    <div style={{ color: '#ddd', fontWeight: 500 }}>{biz.name}</div>
-                    <div style={{ color: '#444', fontSize: 11, marginTop: 2 }}>
+                  <td style={{ padding: '10px 14px' }}>
+                    <div style={{ color: 'var(--white)', fontWeight: 500 }}>{biz.name}</div>
+                    <div style={{ color: 'var(--txt-dim)', fontSize: 11, marginTop: 2 }}>
                       {biz.address?.split(',')[1]?.trim()}
                     </div>
                   </td>
-                  <td style={{ padding: '10px 12px', color: '#666' }}>{biz.category}</td>
-                  <td style={{ padding: '10px 12px', color: '#888' }}>
+                  <td style={{ padding: '10px 14px', color: 'var(--txt-mid)' }}>{biz.category}</td>
+                  <td className="mono tnum" style={{ padding: '10px 14px', color: 'var(--txt-mid)', fontSize: 12 }}>
                     {biz.rating ? `${biz.rating}★` : '—'}
                     {biz.review_count ? (
-                      <span style={{ color: '#444', fontSize: 11 }}> ({biz.review_count})</span>
+                      <span style={{ color: 'var(--txt-faint)', fontSize: 11 }}> ({biz.review_count})</span>
                     ) : null}
                   </td>
-                  <td style={{ padding: '10px 12px', color: '#555', fontFamily: 'monospace', fontSize: 11 }}>
+                  <td className="mono tnum" style={{ padding: '10px 14px', color: 'var(--txt-dim)', fontSize: 11 }}>
                     {biz.phone || '—'}
                   </td>
-                  <td style={{ padding: '10px 12px' }}>
-                    <span style={{
-                      fontSize: 11, padding: '2px 8px', borderRadius: 999,
-                      background: '#111', border: `1px solid ${badge.color}33`, color: badge.color,
+                  <td style={{ padding: '10px 14px' }}>
+                    <span className="mono" style={{
+                      fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase',
+                      padding: '3px 9px', borderRadius: 999, whiteSpace: 'nowrap',
+                      background: 'rgba(255,255,255,0.02)',
+                      border: `1px solid ${badge.color}33`, color: badge.color,
                     }}>
                       {badge.label}
                     </span>
                   </td>
-                  <td style={{ padding: '10px 12px', color: '#555', fontSize: 11 }}>
+                  <td className="mono" style={{ padding: '10px 14px', color: 'var(--txt-dim)', fontSize: 11 }}>
                     {biz.outreach_sent_at ? relTime(biz.outreach_sent_at) : '—'}
                   </td>
-                  <td style={{ padding: '10px 12px' }}>
+                  <td style={{ padding: '10px 14px' }}>
                     {biz.demo_url ? (
                       <a href={biz.demo_url} target="_blank" rel="noreferrer"
-                        style={{ color: '#3b82f6', fontSize: 11, textDecoration: 'none' }}>
+                        className="mono" style={{ color: 'var(--silver)', fontSize: 11 }}>
                         view →
                       </a>
-                    ) : <span style={{ color: '#333' }}>—</span>}
+                    ) : <span style={{ color: 'var(--txt-faint)' }}>—</span>}
                   </td>
-                  <td style={{ padding: '10px 12px' }}>
+                  <td style={{ padding: '10px 14px' }}>
                     {hasEmail ? (
                       <button
                         onClick={() => setSelected(selected?.place_id === biz.place_id ? null : biz)}
-                        style={{
-                          fontSize: 11, padding: '2px 8px', borderRadius: 4,
-                          background: 'transparent', border: '1px solid #2a2a2a',
-                          color: '#888', cursor: 'pointer',
-                        }}
+                        className="btn-chrome"
+                        style={{ fontSize: 10, padding: '3px 10px', borderRadius: 7 }}
                       >
-                        {selected?.place_id === biz.place_id ? 'close' : 'view email'}
+                        {selected?.place_id === biz.place_id ? 'close' : 'email'}
                       </button>
                     ) : (
-                      <span style={{ color: '#2a2a2a', fontSize: 11 }}>—</span>
+                      <span style={{ color: 'var(--txt-faint)', fontSize: 11 }}>—</span>
                     )}
                   </td>
                 </tr>
@@ -205,26 +208,27 @@ export function BusinessTable({ businesses }: { businesses: Business[] }) {
           {/* Backdrop */}
           <div
             onClick={() => setSelected(null)}
-            style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)' }}
+            style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.65)' }}
           />
 
           {/* Panel */}
           <div style={{
             position: 'relative', zIndex: 51,
             width: '100%', maxWidth: 560,
-            background: '#0a0a0a', borderLeft: '1px solid #1f1f1f',
+            background: 'var(--panel)', borderLeft: '1px solid var(--line)',
             display: 'flex', flexDirection: 'column',
             overflowY: 'auto',
+            boxShadow: '-20px 0 50px -30px rgba(0,0,0,0.9)',
           }}>
             {/* Header */}
             <div style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-              padding: '20px 24px', borderBottom: '1px solid #1f1f1f',
-              position: 'sticky', top: 0, background: '#0a0a0a',
+              padding: '20px 24px 16px', borderBottom: '1px solid var(--line)',
+              position: 'sticky', top: 0, background: 'var(--panel)', zIndex: 1,
             }}>
               <div>
-                <p style={{ margin: 0, fontWeight: 600, color: '#ddd' }}>{selected.name}</p>
-                <p style={{ margin: '4px 0 0', fontSize: 11, color: '#555' }}>
+                <p className="chrome" style={{ margin: 0, fontWeight: 700, fontSize: 17 }}>{selected.name}</p>
+                <p className="mono" style={{ margin: '6px 0 0', fontSize: 10.5, color: 'var(--txt-dim)' }}>
                   {selected.outreach_body_id?.toUpperCase() ?? 'V1'} ·{' '}
                   {selected.owner_email} ·{' '}
                   {selected.outreach_sent_at ? relTime(selected.outreach_sent_at) : ''}
@@ -233,7 +237,7 @@ export function BusinessTable({ businesses }: { businesses: Business[] }) {
               <button
                 onClick={() => setSelected(null)}
                 style={{
-                  background: 'none', border: 'none', color: '#555',
+                  background: 'none', border: 'none', color: 'var(--txt-mid)',
                   cursor: 'pointer', fontSize: 20, lineHeight: 1, padding: '0 4px',
                 }}
               >
@@ -243,32 +247,31 @@ export function BusinessTable({ businesses }: { businesses: Business[] }) {
 
             {/* Reply status banner */}
             {selected.outreach_replied_at && (
-              <div style={{
+              <div className="mono" style={{
                 margin: '16px 24px 0',
                 padding: '10px 14px',
-                background: '#1a1040',
-                border: '1px solid #a78bfa44',
-                borderRadius: 6,
-                fontSize: 12,
-                color: '#a78bfa',
+                background: 'rgba(217,185,124,0.07)',
+                border: '1px solid rgba(217,185,124,0.3)',
+                borderRadius: 8,
+                fontSize: 11.5,
+                color: 'var(--gold)',
               }}>
                 ✓ Replied {relTime(selected.outreach_replied_at)}
               </div>
             )}
 
             {/* Email body */}
-            <pre style={{
+            <pre className="mono" style={{
               margin: '20px 24px 24px',
               padding: '16px',
-              background: '#111',
-              border: '1px solid #1f1f1f',
-              borderRadius: 6,
+              background: 'var(--panel-2)',
+              border: '1px solid var(--line)',
+              borderRadius: 10,
               fontSize: 12,
               lineHeight: 1.7,
-              color: '#ccc',
+              color: 'var(--txt)',
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
-              fontFamily: 'ui-monospace, monospace',
             }}>
               {buildEmailText(selected)}
             </pre>
@@ -280,12 +283,8 @@ export function BusinessTable({ businesses }: { businesses: Business[] }) {
                   href={selected.demo_url}
                   target="_blank"
                   rel="noreferrer"
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 6,
-                    fontSize: 12, color: '#3b82f6', textDecoration: 'none',
-                    padding: '8px 14px', border: '1px solid #1e3a5f',
-                    borderRadius: 6, background: '#0f1e30',
-                  }}
+                  className="btn-chrome"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px' }}
                 >
                   View demo site →
                 </a>

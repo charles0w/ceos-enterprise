@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { ProgressBar, StatusDot } from './chrome';
 
 interface Business {
   place_id: string;
@@ -18,11 +19,12 @@ interface Business {
 
 type Outcome = 'interested' | 'voicemail' | 'not_interested' | 'skip';
 
+// hex mirrors of the globals.css tokens — literal so borders can carry an alpha suffix
 const OUTCOME_BTNS: { key: Outcome; label: string; color: string; bg: string }[] = [
-  { key: 'interested',     label: '🔥 Interested',    color: '#22c55e', bg: '#0f2a1a' },
-  { key: 'voicemail',      label: '📞 Voicemail',     color: '#3b82f6', bg: '#0f1e30' },
-  { key: 'not_interested', label: '✗ Not interested', color: '#ef4444', bg: '#2a0f0f' },
-  { key: 'skip',           label: 'Skip →',           color: '#555',    bg: 'transparent' },
+  { key: 'interested',     label: 'Interested',     color: '#3fe08f', bg: 'rgba(63,224,143,0.07)' },
+  { key: 'voicemail',      label: 'Voicemail',      color: '#d7dae2', bg: 'rgba(215,218,226,0.05)' },
+  { key: 'not_interested', label: 'Not interested', color: '#f25c5c', bg: 'rgba(242,92,92,0.06)' },
+  { key: 'skip',           label: 'Skip →',         color: '#54565e', bg: 'transparent' },
 ];
 
 const PITCH_LINES: Record<string, string> = {
@@ -40,12 +42,10 @@ function getPitch(biz: Business): string {
   return template.replace('{name}', biz.name);
 }
 
-function categoryEmoji(cat: string): string {
-  const map: Record<string, string> = {
-    salon: '✂️', beauty: '💅', cafe: '☕', food: '🍽️',
-    retail: '🛍️', fitness: '💪', services: '🔧',
-  };
-  return map[cat] ?? '🏪';
+function outcomeGlyph(outcome: string): { glyph: string; color: string } {
+  if (outcome === 'interested') return { glyph: '●', color: 'var(--ok)' };
+  if (outcome === 'voicemail')  return { glyph: '◌', color: 'var(--silver)' };
+  return { glyph: '✗', color: 'var(--txt-dim)' };
 }
 
 export function CallQueue({ businesses }: { businesses: Business[] }) {
@@ -86,8 +86,8 @@ export function CallQueue({ businesses }: { businesses: Business[] }) {
 
   if (!queue.length) {
     return (
-      <div style={{ padding: '48px 24px', textAlign: 'center' }}>
-        <p style={{ color: '#555', fontFamily: 'var(--font-mono, monospace)', fontSize: 13 }}>
+      <div className="panel rise" style={{ padding: '48px 24px', textAlign: 'center' }}>
+        <p className="mono" style={{ color: 'var(--txt-dim)', fontSize: 12.5 }}>
           No businesses with phone numbers in the queue.
         </p>
       </div>
@@ -96,65 +96,64 @@ export function CallQueue({ businesses }: { businesses: Business[] }) {
 
   if (callIdx >= queue.length) {
     return (
-      <div style={{ padding: '48px 24px', textAlign: 'center' }}>
-        <p style={{ color: '#22c55e', fontSize: 20, fontWeight: 600, marginBottom: 8 }}>Queue complete</p>
-        <p style={{ color: '#555', fontSize: 13 }}>{done.length} calls logged this session</p>
-        <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 360, margin: '24px auto 0' }}>
-          {done.slice(0, 8).map((d, i) => (
-            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666' }}>
-              <span>{d.name}</span>
-              <span style={{ color: d.outcome === 'interested' ? '#22c55e' : d.outcome === 'voicemail' ? '#3b82f6' : '#555' }}>
-                {d.outcome}
-              </span>
-            </div>
-          ))}
+      <div className="panel edge rise" style={{ padding: '48px 24px', textAlign: 'center' }}>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 9, marginBottom: 8 }}>
+          <StatusDot color="var(--ok)" size={7} />
+          <span className="chrome" style={{ fontSize: 21, fontWeight: 700 }}>Queue complete.</span>
+        </div>
+        <p className="mono" style={{ color: 'var(--txt-dim)', fontSize: 12 }}>
+          {done.length} calls logged this session
+        </p>
+        <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 0, maxWidth: 360, margin: '24px auto 0' }}>
+          {done.slice(0, 8).map((d, i) => {
+            const g = outcomeGlyph(d.outcome);
+            return (
+              <div key={i} style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '7px 2px', borderBottom: '1px solid var(--line)', fontSize: 12,
+              }}>
+                <span style={{ color: 'var(--txt-mid)' }}>{d.name}</span>
+                <span className="mono" style={{ color: g.color, fontSize: 11 }}>{g.glyph} {d.outcome}</span>
+              </div>
+            );
+          })}
         </div>
       </div>
     );
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 20, alignItems: 'start' }}>
+    <div className="queue-grid">
 
       {/* ── Main call card ── */}
       <div>
         {/* Progress */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
-          <span style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 11, color: '#555' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 18 }}>
+          <span className="mono tnum" style={{ fontSize: 11, color: 'var(--txt-dim)', whiteSpace: 'nowrap' }}>
             {callIdx + 1} / {queue.length} · {remaining - 1} remaining
           </span>
-          <div style={{ flex: 1, height: 3, background: '#111', borderRadius: 99 }}>
-            <div style={{
-              height: '100%', borderRadius: 99, background: '#3b82f6',
-              width: `${((callIdx) / queue.length) * 100}%`,
-              transition: 'width 0.4s ease',
-            }} />
+          <div style={{ flex: 1 }}>
+            <ProgressBar value={callIdx / queue.length} height={5} />
           </div>
         </div>
 
         {/* Business card */}
-        <div style={{
-          background: '#0a0f15', border: '1px solid #15212c',
-          borderRadius: 14, padding: '28px 28px 24px', marginBottom: 16,
-        }}>
+        <div className="panel edge rise" style={{ padding: '26px 26px 22px', marginBottom: 16 }}>
           {/* Header */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, marginBottom: 20 }}>
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                <span style={{ fontSize: 22 }}>{categoryEmoji(current.category)}</span>
-                <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#eef6f9' }}>{current.name}</h2>
-              </div>
-              <p style={{ margin: 0, fontSize: 13, color: '#555' }}>
+              <h2 className="chrome" style={{ margin: '0 0 7px', fontSize: 22, fontWeight: 700, letterSpacing: '-0.01em' }}>
+                {current.name}
+              </h2>
+              <p className="mono" style={{ margin: 0, fontSize: 11.5, color: 'var(--txt-dim)' }}>
                 {current.address?.split(',').slice(0, 2).join(',')} · {current.category}
                 {current.rating ? ` · ${current.rating}★ (${current.review_count})` : ''}
               </p>
             </div>
             {current.demo_url && (
-              <a href={current.demo_url} target="_blank" rel="noreferrer" style={{
-                fontSize: 11, color: '#3b82f6', textDecoration: 'none',
-                padding: '4px 10px', border: '1px solid #1e3a5f', borderRadius: 6,
-                background: '#0f1e30', flexShrink: 0,
-              }}>
+              <a href={current.demo_url} target="_blank" rel="noreferrer"
+                className="btn-chrome"
+                style={{ fontSize: 10, padding: '4px 12px', flexShrink: 0 }}>
                 demo →
               </a>
             )}
@@ -163,28 +162,28 @@ export function CallQueue({ businesses }: { businesses: Business[] }) {
           {/* Phone number — big and tappable */}
           <a href={`tel:${current.phone}`} style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            gap: 14, background: '#0f2a1a', border: '1px solid #22c55e44',
-            borderRadius: 12, padding: '20px 24px', textDecoration: 'none',
-            marginBottom: 20, transition: 'background 0.15s',
+            gap: 14, background: '#000', border: '1px solid var(--line-2)',
+            borderRadius: 12, padding: '20px 24px',
+            marginBottom: 20, position: 'relative',
           }}>
-            <span style={{ fontSize: 28 }}>📞</span>
-            <span style={{
-              fontFamily: 'var(--font-mono, monospace)', fontSize: 26,
-              fontWeight: 600, color: '#22c55e', letterSpacing: '0.04em',
-            }}>
+            <StatusDot color="var(--ok)" pulse size={7} />
+            <span className="mono tnum chrome" style={{ fontSize: 26, fontWeight: 600, letterSpacing: '0.04em' }}>
               {current.phone}
+            </span>
+            <span className="label" style={{
+              position: 'absolute', right: 14, bottom: 9, fontSize: 8.5, color: 'var(--txt-faint)',
+            }}>
+              tap to call
             </span>
           </a>
 
           {/* Pitch script */}
           <div style={{
-            background: '#0c131b', border: '1px dashed #1c2b39',
-            borderRadius: 8, padding: '12px 16px', marginBottom: 20,
+            background: 'var(--panel-2)', border: '1px dashed var(--line-2)',
+            borderRadius: 10, padding: '12px 16px', marginBottom: 20,
           }}>
-            <p style={{ margin: '0 0 4px', fontSize: 10, color: '#4a5663', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
-              Pitch
-            </p>
-            <p style={{ margin: 0, fontSize: 13, color: '#7c8a98', lineHeight: 1.6 }}>
+            <p className="label" style={{ margin: '0 0 6px', fontSize: 9.5 }}>Pitch</p>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mid)', lineHeight: 1.65 }}>
               "Hi, is this {current.name}? I'm Charles, a UC Berkeley student.{' '}
               {getPitch(current)}{' '}
               {current.demo_url
@@ -199,30 +198,26 @@ export function CallQueue({ businesses }: { businesses: Business[] }) {
             value={notes}
             onChange={e => setNotes(e.target.value)}
             placeholder="Notes (optional — e.g. 'call back Thursday', 'wants email')"
-            style={{
-              width: '100%', padding: '10px 12px',
-              background: '#06080b', border: '1px solid #15212c',
-              borderRadius: 8, color: '#c8d4de', fontSize: 12,
-              fontFamily: 'var(--font-mono, monospace)',
-              resize: 'vertical', minHeight: 60, outline: 'none',
-              boxSizing: 'border-box',
-            }}
+            className="field mono"
+            style={{ width: '100%', fontSize: 12, resize: 'vertical', minHeight: 60 }}
           />
         </div>
 
         {/* Outcome buttons */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
           {OUTCOME_BTNS.map(btn => (
             <button
               key={btn.key}
               onClick={() => logOutcome(btn.key)}
               disabled={logging}
+              className="mono"
               style={{
-                padding: '12px 8px', borderRadius: 8, border: `1px solid ${btn.color}33`,
+                padding: '12px 8px', borderRadius: 10, border: `1px solid ${btn.color}33`,
                 background: btn.bg, color: btn.color,
-                fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase',
+                cursor: 'pointer',
                 opacity: logging ? 0.5 : 1,
-                transition: 'opacity 0.15s',
+                transition: 'opacity 0.15s, border-color 0.18s',
               }}
             >
               {btn.label}
@@ -233,25 +228,18 @@ export function CallQueue({ businesses }: { businesses: Business[] }) {
 
       {/* ── Sidebar: upcoming ── */}
       <div>
-        <p style={{
-          fontFamily: 'var(--font-mono, monospace)', fontSize: 10,
-          color: '#4a5663', textTransform: 'uppercase', letterSpacing: '0.15em',
-          marginBottom: 12,
-        }}>
-          Up next
-        </p>
+        <p className="label" style={{ marginBottom: 12 }}>Up next</p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {queue.slice(callIdx + 1, callIdx + 8).map((biz, i) => (
-            <div key={biz.place_id} style={{
-              padding: '10px 12px', background: '#0a0f15',
-              border: '1px solid #15212c', borderRadius: 8,
+            <div key={biz.place_id} className="panel" style={{
+              padding: '10px 13px', borderRadius: 10,
               opacity: Math.max(0.4, 1 - i * 0.08),
             }}>
-              <div style={{ fontSize: 12, color: '#7c8a98', fontWeight: 500 }}>{biz.name}</div>
-              <div style={{ fontSize: 11, color: '#4a5663', marginTop: 2 }}>
-                {categoryEmoji(biz.category)} {biz.category}
+              <div style={{ fontSize: 12.5, color: 'var(--txt)', fontWeight: 500 }}>{biz.name}</div>
+              <div className="mono" style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 3 }}>
+                {biz.category}
                 {biz.rating ? ` · ${biz.rating}★` : ''}
-                {biz.demo_url ? ' · demo ✓' : ''}
+                {biz.demo_url ? <span style={{ color: 'var(--silver)' }}> · demo ✓</span> : ''}
               </div>
             </div>
           ))}
@@ -260,28 +248,20 @@ export function CallQueue({ businesses }: { businesses: Business[] }) {
         {/* Session log */}
         {done.length > 0 && (
           <div style={{ marginTop: 20 }}>
-            <p style={{
-              fontFamily: 'var(--font-mono, monospace)', fontSize: 10,
-              color: '#4a5663', textTransform: 'uppercase', letterSpacing: '0.15em',
-              marginBottom: 10,
-            }}>
-              Called this session
-            </p>
-            {done.slice(0, 10).map((d, i) => (
-              <div key={i} style={{
-                display: 'flex', justifyContent: 'space-between',
-                padding: '5px 0', borderBottom: '1px solid #0f1822',
-                fontSize: 11,
-              }}>
-                <span style={{ color: '#555' }}>{d.name.slice(0, 22)}</span>
-                <span style={{
-                  color: d.outcome === 'interested' ? '#22c55e'
-                    : d.outcome === 'voicemail' ? '#3b82f6' : '#555',
+            <p className="label" style={{ marginBottom: 10 }}>Called this session</p>
+            {done.slice(0, 10).map((d, i) => {
+              const g = outcomeGlyph(d.outcome);
+              return (
+                <div key={i} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '5px 0', borderBottom: '1px solid var(--line)',
+                  fontSize: 11,
                 }}>
-                  {d.outcome === 'interested' ? '🔥' : d.outcome === 'voicemail' ? '📞' : '✗'}
-                </span>
-              </div>
-            ))}
+                  <span style={{ color: 'var(--txt-dim)' }}>{d.name.slice(0, 22)}</span>
+                  <span className="mono" style={{ color: g.color }}>{g.glyph}</span>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
