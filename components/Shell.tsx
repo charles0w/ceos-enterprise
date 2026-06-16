@@ -13,10 +13,25 @@ export const NAV_TABS = [
   { label: 'Portfolio',     href: '/portfolio' },
 ] as const;
 
-export function Nav({ active }: { active: string }) {
+// Public demo only exposes the two surfaces that work without live data /
+// the auth gate. Everything else stays behind the login wall.
+export const DEMO_NAV_TABS = [
+  { label: 'Fleet',       href: '/demo' },
+  { label: 'Ask the CEO', href: '/demo/ceo', isNew: true },
+  { label: 'Portfolio',   href: '/portfolio' },
+] as const;
+
+export function Nav({ active, demo = false }: { active: string; demo?: boolean }) {
+  const tabs = demo ? DEMO_NAV_TABS : NAV_TABS;
   return (
-    <nav style={{ display: 'flex', gap: 6, borderBottom: '1px solid var(--line)', marginBottom: 24, overflowX: 'auto' }}>
-      {NAV_TABS.map((t) => {
+    <nav style={{ display: 'flex', gap: 6, alignItems: 'center', borderBottom: '1px solid var(--line)', marginBottom: 24, overflowX: 'auto' }}>
+      {demo && (
+        <span className="mono" style={{
+          fontSize: 9, letterSpacing: '0.18em', color: '#030304', background: 'var(--silver, #d7dae2)',
+          padding: '3px 8px', borderRadius: 5, marginRight: 4, whiteSpace: 'nowrap', fontWeight: 600,
+        }}>DEMO</span>
+      )}
+      {tabs.map((t) => {
         const isActive = t.label === active;
         return (
           <a key={t.label} href={t.href} className="mono tab"

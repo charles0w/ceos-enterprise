@@ -430,13 +430,14 @@ function QualityRow({ score, reliability, note }:
   );
 }
 
-function AgentCard({ aw, idx, growthStats, jobStats, trend, queued }: {
+function AgentCard({ aw, idx, growthStats, jobStats, trend, queued, demo = false }: {
   aw: AgentWithStatus;
   idx: number;
   growthStats: GrowthStats | null;
   jobStats: JobStats | null;
   trend?: { points: number[]; delta: number | null };
   queued: number;
+  demo?: boolean;
 }) {
   const { agent, status } = aw;
   const cfg = AGENT_CFG[agent.id] ?? { uptime: null };
@@ -588,7 +589,7 @@ function AgentCard({ aw, idx, growthStats, jobStats, trend, queued }: {
             {cfg.uptime != null && <span style={{ color: 'var(--txt-dim)' }}>{cfg.uptime}% uptime · </span>}
             {agent.schedule}
           </div>
-          {cfg.link
+          {cfg.link && !demo
             ? <a href={cfg.link.href} className="mono" style={{ fontSize: 10.5, color: 'var(--silver)' }}>{cfg.link.label} →</a>
             : cfg.note && active ? <span className="mono" style={{ fontSize: 10, color: 'var(--gold)' }}>{cfg.note}</span> : null}
         </div>
@@ -845,13 +846,14 @@ function PixelM4() {
 // ── main export ───────────────────────────────────────────────
 const REFRESH_MS = 15_000;
 
-export function FleetDashboard({ initial, growthStats, jobStats, garage, initialTasks, initialEvents }: {
+export function FleetDashboard({ initial, growthStats, jobStats, garage, initialTasks, initialEvents, demo = false }: {
   initial: AgentWithStatus[];
   growthStats: GrowthStats | null;
   jobStats: JobStats | null;
   garage: GarageData | null;
   initialTasks: FleetTask[];
   initialEvents: EventFeed;
+  demo?: boolean;
 }) {
   const [fleet, setFleet] = useState(initial);
   const [tasks, setTasks] = useState(initialTasks);
@@ -859,6 +861,7 @@ export function FleetDashboard({ initial, growthStats, jobStats, garage, initial
   const [trends, setTrends] = useState<Record<string, { points: number[]; delta: number | null }>>({});
 
   useEffect(() => {
+    if (demo) return; // public demo runs on a static snapshot — no gated polling
     const id = setInterval(async () => {
       try {
         const res = await fetch('/api/agents');
@@ -877,6 +880,7 @@ export function FleetDashboard({ initial, growthStats, jobStats, garage, initial
   }, []);
 
   useEffect(() => {
+    if (demo) return; // trends come from a gated endpoint; demo ships seeded ones
     const load = async () => {
       try {
         const res = await fetch('/api/trends');
@@ -903,7 +907,7 @@ export function FleetDashboard({ initial, growthStats, jobStats, garage, initial
   return (
     <div className="page" style={{ maxWidth: 1320, margin: '0 auto' }}>
       <Header online={online} needEye={needEye} />
-      <Nav active="Fleet" />
+      <Nav active="Fleet" demo={demo} />
       <Hero fleet={fleet} feed={feed} />
       <VizStrip growthStats={growthStats} garage={garage} feed={feed} />
 
@@ -912,11 +916,11 @@ export function FleetDashboard({ initial, growthStats, jobStats, garage, initial
         <h2 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--txt-mid)', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>
           The fleet
         </h2>
-        <span className="label">{fleet.length} units · auto-refresh {REFRESH_MS / 1000}s</span>
+        <span className="label">{fleet.length} units · {demo ? 'demo snapshot' : `auto-refresh ${REFRESH_MS / 1000}s`}</span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(360px, 100%), 1fr))', gap: 16 }}>
         {fleet.map((aw, i) => (
-          <AgentCard key={aw.agent.id} aw={aw} idx={i}
+          <AgentCard key={aw.agent.id} aw={aw} idx={i} demo={demo}
             growthStats={growthStats} jobStats={jobStats} trend={trends[aw.agent.id]}
             queued={queuedByAgent[aw.agent.id] ?? 0} />
         ))}

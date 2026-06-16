@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 // Public routes — no auth required (portfolio, demo sites, webhooks)
 const PUBLIC_PREFIXES = [
   '/portfolio',
+  '/demo',         // public, read-only showcase (mock data, scripted CEO chat)
   '/login',
   '/api/webhook',
   '/api/auth',
