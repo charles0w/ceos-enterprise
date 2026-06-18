@@ -25,6 +25,7 @@ export async function POST(req: NextRequest) {
     predictions: cap(body.predictions, 200),
     positions: cap(body.positions, 100),
     candidates: cap(body.candidates, 100),
+    upcoming: cap(body.upcoming, 60),
     note: typeof body.note === 'string' ? body.note.slice(0, 300) : null,
   });
 

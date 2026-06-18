@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { Nav, PageHeader } from '@/components/Shell';
 import { getFinanceSnapshot, getFinanceRuns } from '@/lib/finance';
-import type { FinancePrediction, FinancePosition, FinanceCandidate } from '@/lib/finance';
+import type { FinancePrediction, FinancePosition, FinanceCandidate, FinanceUpcoming } from '@/lib/finance';
 
 const GREEN = '#86c98e';
 const RED = 'var(--red)';
@@ -92,6 +92,27 @@ export default async function FinancePage() {
           <span className="label" style={{ marginRight: 10 }}>last run</span>{snap.note}
         </section>
       )}
+
+      {/* upcoming earnings — forward look at this week's reporters (setups incoming) */}
+      <section className="panel edge rise" style={{ padding: 0, marginBottom: 18, overflow: 'hidden' }}>
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)' }} className="label">Upcoming earnings · this week</div>
+        {snap.upcoming.length === 0
+          ? <div style={{ padding: '16px 18px', color: 'var(--txt-faint)', fontSize: 12.5 }}>No liquid names reporting in the next 7 days.</div>
+          : <table style={{ width: '100%', borderCollapse: 'collapse' }}><thead><tr>
+              <th style={th}>Symbol</th><th style={th}>Reports</th><th style={th}>When</th><th style={th}>EPS est</th><th style={th}>Tradeable</th>
+            </tr></thead><tbody>
+              {snap.upcoming.map((u: FinanceUpcoming, i) => {
+                const when = u.hour === 'bmo' ? 'before open' : u.hour === 'amc' ? 'after close' : (u.hour ?? '—');
+                return <tr key={i}>
+                  <td style={{ ...td, color: SILVER }}>{u.symbol}</td>
+                  <td style={td}>{u.date}</td>
+                  <td style={{ ...td, color: DIM }}>{when}</td>
+                  <td style={td}>{u.eps_estimate == null ? '—' : num(u.eps_estimate)}</td>
+                  <td style={{ ...td, color: DIM }}>T+1/T+2 after</td>
+                </tr>;
+              })}
+            </tbody></table>}
+      </section>
 
       {/* activity log — each daily launch, click to expand its summary */}
       <section className="panel edge rise" style={{ padding: 0, marginBottom: 18, overflow: 'hidden' }}>

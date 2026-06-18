@@ -41,6 +41,13 @@ export interface FinanceCandidate {
   in_window?: boolean;
 }
 
+export interface FinanceUpcoming {
+  symbol: string;
+  date: string;                 // YYYY-MM-DD
+  hour?: string | null;         // "bmo" | "amc" | ...
+  eps_estimate?: number | null;
+}
+
 export interface FinanceSnapshot {
   updatedAt: string | null;
   model: Record<string, unknown> | null;     // {version, held_out_acc, weights, ...}
@@ -48,6 +55,7 @@ export interface FinanceSnapshot {
   predictions: FinancePrediction[];
   positions: FinancePosition[];
   candidates: FinanceCandidate[];
+  upcoming: FinanceUpcoming[];                // forward: liquid names reporting this week
   note: string | null;                        // e.g. last run summary
 }
 
@@ -60,7 +68,7 @@ export interface FinanceRun {
 }
 
 function empty(): FinanceSnapshot {
-  return { updatedAt: null, model: null, scorecard: null, predictions: [], positions: [], candidates: [], note: null };
+  return { updatedAt: null, model: null, scorecard: null, predictions: [], positions: [], candidates: [], upcoming: [], note: null };
 }
 
 async function ensureTable() {
@@ -76,6 +84,7 @@ async function ensureTable() {
       updated_at TIMESTAMPTZ DEFAULT now()
     )
   `;
+  await sql`ALTER TABLE finance_snapshot ADD COLUMN IF NOT EXISTS upcoming JSONB`;
   await sql`
     CREATE TABLE IF NOT EXISTS finance_runs (
       id SERIAL PRIMARY KEY,
@@ -122,6 +131,7 @@ export async function getFinanceSnapshot(): Promise<FinanceSnapshot> {
       predictions: r.predictions ?? [],
       positions: r.positions ?? [],
       candidates: r.candidates ?? [],
+      upcoming: r.upcoming ?? [],
       note: r.note ?? null,
     };
   } catch {
@@ -134,15 +144,16 @@ export async function upsertFinanceSnapshot(p: Partial<FinanceSnapshot>): Promis
   // Mirror registry.ts: pass JSON strings into JSONB columns (@vercel/postgres casts).
   const j = (v: unknown) => (v == null ? null : JSON.stringify(v));
   await sql`
-    INSERT INTO finance_snapshot (id, model, scorecard, predictions, positions, candidates, note, updated_at)
+    INSERT INTO finance_snapshot (id, model, scorecard, predictions, positions, candidates, upcoming, note, updated_at)
     VALUES ('latest', ${j(p.model)}, ${j(p.scorecard)}, ${j(p.predictions ?? [])},
-            ${j(p.positions ?? [])}, ${j(p.candidates ?? [])}, ${p.note ?? null}, now())
+            ${j(p.positions ?? [])}, ${j(p.candidates ?? [])}, ${j(p.upcoming ?? [])}, ${p.note ?? null}, now())
     ON CONFLICT (id) DO UPDATE SET
       model = EXCLUDED.model,
       scorecard = EXCLUDED.scorecard,
       predictions = EXCLUDED.predictions,
       positions = EXCLUDED.positions,
       candidates = EXCLUDED.candidates,
+      upcoming = EXCLUDED.upcoming,
       note = EXCLUDED.note,
       updated_at = now()
   `;
