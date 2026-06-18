@@ -8,6 +8,7 @@ const PUBLIC_PREFIXES = [
   '/api/webhook',
   '/api/auth',
   '/api/report',   // agents authenticate with x-report-secret, not a session cookie
+  '/api/finance',  // ai-trading-bot pushes its snapshot with x-report-secret
   '/api/tasks',    // dual-auth inside the route: session cookie (dashboard) or x-report-secret (agents)
   '/api/memory',   // ai-memory vault<->DB sync authenticates with x-report-secret
   '/api/cron',     // Vercel Cron authenticates with CRON_SECRET, not a session cookie

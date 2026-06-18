@@ -10,6 +10,7 @@ export const NAV_TABS = [
   { label: 'Memory graph',  href: '/graph',      isNew: true },
   { label: 'Social studio', href: '/social',     isNew: true },
   { label: 'Pipeline',      href: '/businesses' },
+  { label: 'Finance',       href: '/finance',    isNew: true },
   { label: 'Portfolio',     href: '/portfolio' },
 ] as const;
 

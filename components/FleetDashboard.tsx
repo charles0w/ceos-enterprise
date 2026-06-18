@@ -37,7 +37,7 @@ interface AgentCfg {
 }
 const AGENT_CFG: Record<string, AgentCfg> = {
   commerce:        { sigil: '/assets/crown.png',       uptime: 99.4 },
-  finance:         { sigil: '/assets/dollar.png',      uptime: 98.9 },
+  finance:         { sigil: '/assets/dollar.png',      uptime: 98.9, link: { label: 'open trading desk', href: '/finance' } },
   'lambos-trader': { glyph: 'Λ',                       uptime: 97.6 },
   growth:          { sigil: '/assets/chrome-star.png', uptime: 99.1, link: { label: 'open pipeline', href: '/businesses' } },
   jobs:            { glyph: '▤',                       uptime: 99.0 },
