@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { upsertFinanceSnapshot } from '@/lib/finance';
+import { upsertFinanceSnapshot, appendFinanceRun } from '@/lib/finance';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +27,16 @@ export async function POST(req: NextRequest) {
     candidates: cap(body.candidates, 100),
     note: typeof body.note === 'string' ? body.note.slice(0, 300) : null,
   });
+
+  // Optional: append a daily-launch record to the activity log.
+  const run = body.run as { ok?: boolean; summary?: string; detail?: string } | undefined;
+  if (run && (run.summary || run.detail)) {
+    await appendFinanceRun({
+      ok: typeof run.ok === 'boolean' ? run.ok : true,
+      summary: typeof run.summary === 'string' ? run.summary.slice(0, 300) : undefined,
+      detail: typeof run.detail === 'string' ? run.detail : undefined,
+    });
+  }
 
   return NextResponse.json({ ok: true });
 }

@@ -51,6 +51,14 @@ export interface FinanceSnapshot {
   note: string | null;                        // e.g. last run summary
 }
 
+// One daily-launch record for the activity log (click a day to see its summary).
+export interface FinanceRun {
+  ts: string;
+  ok: boolean;
+  summary: string;
+  detail: string;
+}
+
 function empty(): FinanceSnapshot {
   return { updatedAt: null, model: null, scorecard: null, predictions: [], positions: [], candidates: [], note: null };
 }
@@ -67,6 +75,37 @@ async function ensureTable() {
       note TEXT,
       updated_at TIMESTAMPTZ DEFAULT now()
     )
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS finance_runs (
+      id SERIAL PRIMARY KEY,
+      ts TIMESTAMPTZ DEFAULT now(),
+      ok BOOLEAN DEFAULT true,
+      summary TEXT,
+      detail TEXT
+    )
+  `;
+}
+
+export async function getFinanceRuns(limit = 30): Promise<FinanceRun[]> {
+  try {
+    await ensureTable();
+    const { rows } = await sql`
+      SELECT ts, ok, summary, detail FROM finance_runs ORDER BY ts DESC LIMIT ${limit}
+    `;
+    return rows.map((r) => ({
+      ts: r.ts, ok: r.ok, summary: r.summary ?? '', detail: r.detail ?? '',
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function appendFinanceRun(run: { ok?: boolean; summary?: string; detail?: string }): Promise<void> {
+  await ensureTable();
+  await sql`
+    INSERT INTO finance_runs (ok, summary, detail)
+    VALUES (${run.ok ?? true}, ${run.summary ?? null}, ${run.detail ? run.detail.slice(0, 8000) : null})
   `;
 }
 
