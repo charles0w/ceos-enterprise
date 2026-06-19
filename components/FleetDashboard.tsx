@@ -188,11 +188,12 @@ function Hero({ fleet, feed }: { fleet: AgentWithStatus[]; feed: EventFeed }) {
             </div>
           </div>
         </div>
-        {/* right — the car waiting in the dark */}
+        {/* right — the esc key waiting in the dark */}
         <div style={{ position: 'relative', minHeight: 230, overflow: 'hidden' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/assets/bmw-shadow.png" alt="" className="blend" style={{
-            position: 'absolute', right: -40, bottom: -36, width: '120%', maxWidth: 640,
+          <img src="/assets/esc-key.png" alt="" className="blend" style={{
+            position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)',
+            width: '64%', maxWidth: 300,
             animation: 'headlights 6s ease-in-out infinite',
           }} />
           <div className="mono" style={{
