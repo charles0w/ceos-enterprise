@@ -78,6 +78,20 @@ export interface EditPlan {
   notes?: string;
 }
 
+// ── post copy ──────────────────────────────────────────────────
+export interface PlatformPost {
+  caption: string;
+  hashtags: string[];   // no '#' prefix — the UI prepends it
+  cta?: string;
+}
+export interface PostCopy {
+  tiktok?: PlatformPost;
+  instagram?: PlatformPost;
+  youtube?: PlatformPost;
+  twitter?: PlatformPost;
+}
+export type PostCopyPlatform = keyof PostCopy;
+
 // ── canvas geometry ───────────────────────────────────────────
 export type RenderQuality = 'draft' | 'final';
 

@@ -7,7 +7,7 @@
 // is unchanged.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { EditPlan, RenderQuality } from '@/lib/social/plan';
+import type { EditPlan, RenderQuality, PostCopy, PostCopyPlatform } from '@/lib/social/plan';
 import { planDuration, clipDuration } from '@/lib/social/plan';
 import { saveMedia, deleteMedia, hasMedia, getMedia, persistHint, storageEstimate } from '@/lib/social/mediaStore';
 import { probeFile, extractFrames } from '@/lib/social/probe';
@@ -20,6 +20,7 @@ import { Nav, PageHeader } from '../Shell';
 const PROJECT_ID = 'studio-main';
 const LS_KEY = 'social-studio:project';
 const LS_SUGGEST = 'social-studio:suggestions';
+const LS_POST_COPY = 'social-studio:postCopy';
 
 // ── types ─────────────────────────────────────────────────────
 interface TranscriptSeg { start: number; end: number; text: string }
@@ -126,6 +127,9 @@ export function SocialStudio() {
   const [account, setAccount] = useState<'client' | 'ceo0uch'>('client');
   const [tagsCopied, setTagsCopied] = useState(false);
   const [briefState, setBriefState] = useState<BriefState>({ phase: 'loading' });
+  const [postCopy, setPostCopy] = useState<PostCopy | null>(null);
+  const [copyPlatform, setCopyPlatform] = useState<PostCopyPlatform>('tiktok');
+  const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const endRef = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -150,15 +154,28 @@ export function SocialStudio() {
         setError(`Library sync unavailable (${String(e instanceof Error ? e.message : e)}) — working from this device only.`);
       }
       try {
-        const p = await api<{ project: { plan: EditPlan | null; messages: Msg[]; title: string } }>(
+        const p = await api<{ project: { plan: EditPlan | null; messages: Msg[]; title: string; post_copy: PostCopy | null } }>(
           `/api/social/projects?id=${PROJECT_ID}`,
         );
         setPlan(p.project.plan);
         setMessages(Array.isArray(p.project.messages) ? p.project.messages : []);
+        if (p.project.post_copy) {
+          setPostCopy(p.project.post_copy);
+          const first = (['tiktok', 'instagram', 'youtube', 'twitter'] as const).find((pl) => p.project.post_copy![pl]);
+          if (first) setCopyPlatform(first);
+        }
       } catch {
         try {
           const cached = JSON.parse(localStorage.getItem(LS_KEY) || 'null') as { plan: EditPlan | null; messages: Msg[] } | null;
           if (cached) { setPlan(cached.plan); setMessages(cached.messages ?? []); }
+        } catch { /* nothing cached */ }
+        try {
+          const cachedCopy = JSON.parse(localStorage.getItem(LS_POST_COPY) || 'null') as PostCopy | null;
+          if (cachedCopy) {
+            setPostCopy(cachedCopy);
+            const first = (['tiktok', 'instagram', 'youtube', 'twitter'] as const).find((pl) => cachedCopy[pl]);
+            if (first) setCopyPlatform(first);
+          }
         } catch { /* nothing cached */ }
       }
       setStorage(await storageEstimate());
@@ -192,16 +209,22 @@ export function SocialStudio() {
     }
   }, [briefState.phase]);
 
-  // ── persist plan + chat (debounced; localStorage mirror) ─────
-  const persist = useCallback((nextPlan: EditPlan | null, nextMessages: Msg[]) => {
+  // ── persist plan + chat + post copy (debounced; localStorage mirror) ─────
+  const persist = useCallback((nextPlan: EditPlan | null, nextMessages: Msg[], nextPostCopy?: PostCopy | null) => {
     const stripped = nextMessages.slice(-60).map(({ frames: _f, ...m }) => m);
     try { localStorage.setItem(LS_KEY, JSON.stringify({ plan: nextPlan, messages: stripped })); } catch { /* full */ }
+    if (nextPostCopy !== undefined) {
+      try { localStorage.setItem(LS_POST_COPY, JSON.stringify(nextPostCopy)); } catch { /* full */ }
+    }
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       api('/api/social/projects', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: PROJECT_ID, title: nextPlan?.title ?? undefined, plan: nextPlan, messages: stripped }),
+        body: JSON.stringify({
+          id: PROJECT_ID, title: nextPlan?.title ?? undefined, plan: nextPlan, messages: stripped,
+          ...(nextPostCopy !== undefined ? { postCopy: nextPostCopy } : {}),
+        }),
       }).catch(() => { /* best-effort */ });
     }, 1200);
   }, []);
@@ -338,25 +361,32 @@ export function SocialStudio() {
     setPendingFrames(null);
     setBusy(true);
     try {
-      const data = await api<{ reply: string; plan: EditPlan | null }>('/api/social/agent', {
+      const data = await api<{ reply: string; plan: EditPlan | null; postCopy: PostCopy | null }>('/api/social/agent', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           messages: next.map((m) => ({ role: m.role, text: m.text, frames: m.frames })),
           currentPlan: plan,
+          currentPostCopy: postCopy,
         }),
       });
       const newPlan = data.plan ?? plan;
+      const newPostCopy = data.postCopy ?? null;
       const withReply = [...next, { role: 'assistant' as const, text: data.reply, planUpdated: !!data.plan }];
       setMessages(withReply);
       if (data.plan) setPlan(data.plan);
-      persist(newPlan, withReply);
+      if (data.postCopy) {
+        setPostCopy(data.postCopy);
+        const first = (['tiktok', 'instagram', 'youtube', 'twitter'] as const).find((p) => data.postCopy![p]);
+        if (first) setCopyPlatform(first);
+      }
+      persist(newPlan, withReply, newPostCopy || undefined);
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
       setMessages((m) => m.slice(0, -1));
     } finally {
       setBusy(false);
     }
-  }, [input, busy, messages, plan, pendingFrames, persist]);
+  }, [input, busy, messages, plan, postCopy, pendingFrames, persist]);
 
   // ── render ────────────────────────────────────────────────────
   const startRender = useCallback(async () => {
@@ -807,6 +837,107 @@ export function SocialStudio() {
                   )}
                   <div className="mono" style={{ fontSize: 9, color: 'var(--txt-faint)', marginTop: 6, textAlign: 'center' }}>ready for Reels / TikTok upload</div>
                 </div>
+              )}
+            </div>
+          </section>
+
+          {/* post copy */}
+          <section className="panel rise" style={{ animationDelay: '215ms' }}>
+            <PanelHead title="Post copy" right={
+              postCopy
+                ? <button onClick={() => setInput('Rewrite the post copy for all platforms')} className="mono" style={chip()}>↻ refresh</button>
+                : <span className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>auto after plan</span>
+            } />
+            <div style={{ padding: '12px 12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {!postCopy ? (
+                <div className="mono" style={{ color: 'var(--txt-faint)', fontSize: 10.5, lineHeight: 1.55 }}>
+                  platform captions, hashtags + CTAs — generated automatically after the first plan. ask the editor to "write post copy" to trigger it now.
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {(['tiktok', 'instagram', 'youtube', 'twitter'] as const)
+                      .filter((p) => postCopy[p])
+                      .map((p) => (
+                        <button key={p} onClick={() => setCopyPlatform(p)} className="mono" style={{
+                          flex: 1, padding: '5px 0', borderRadius: 7, fontSize: 9, letterSpacing: '0.07em',
+                          textTransform: 'lowercase', cursor: 'pointer',
+                          border: `1px solid ${copyPlatform === p ? 'rgba(215,218,226,0.45)' : 'var(--line)'}`,
+                          background: copyPlatform === p ? 'rgba(215,218,226,0.08)' : 'transparent',
+                          color: copyPlatform === p ? 'var(--white)' : 'var(--txt-dim)',
+                        }}>{p === 'youtube' ? 'yt' : p === 'instagram' ? 'ig' : p === 'twitter' ? 'x' : p}</button>
+                      ))
+                    }
+                  </div>
+                  {(() => {
+                    const pp = postCopy[copyPlatform];
+                    if (!pp) return null;
+                    const twitterMode = copyPlatform === 'twitter';
+                    const twitterLen = twitterMode
+                      ? pp.caption.length + (pp.hashtags.length ? pp.hashtags.reduce((s, h) => s + h.length + 2, 0) : 0) + (pp.cta ? pp.cta.length + 1 : 0)
+                      : 0;
+                    const overLimit = twitterMode && twitterLen > 280;
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                            <span className="label" style={{ fontSize: 9 }}>caption</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              {twitterMode && (
+                                <span className="mono" style={{ fontSize: 9, color: overLimit ? 'var(--err)' : 'var(--txt-faint)' }}>
+                                  {twitterLen}/280
+                                </span>
+                              )}
+                              <button className="mono" style={chip(copiedField === `${copyPlatform}:caption` ? 'var(--ok)' : undefined)}
+                                onClick={async () => {
+                                  try { await navigator.clipboard.writeText(pp.caption); setCopiedField(`${copyPlatform}:caption`); setTimeout(() => setCopiedField(null), 1600); } catch { /* blocked */ }
+                                }}>
+                                {copiedField === `${copyPlatform}:caption` ? '✓' : '⧉'}
+                              </button>
+                            </div>
+                          </div>
+                          <div style={{
+                            fontSize: 11.5, color: 'var(--txt)', lineHeight: 1.5, padding: '7px 10px', borderRadius: 8,
+                            border: `1px solid ${overLimit ? 'rgba(242,100,78,0.4)' : 'var(--line)'}`,
+                            background: 'rgba(255,255,255,0.015)', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                          }}>
+                            {pp.caption}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                            <span className="label" style={{ fontSize: 9 }}>hashtags</span>
+                            <button className="mono" style={chip(copiedField === `${copyPlatform}:tags` ? 'var(--ok)' : undefined)}
+                              onClick={async () => {
+                                try { await navigator.clipboard.writeText(pp.hashtags.map((h) => `#${h}`).join(' ')); setCopiedField(`${copyPlatform}:tags`); setTimeout(() => setCopiedField(null), 1600); } catch { /* blocked */ }
+                              }}>
+                              {copiedField === `${copyPlatform}:tags` ? '✓ copied' : '⧉ copy'}
+                            </button>
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                            {pp.hashtags.map((h, i) => (
+                              <span key={i} className="mono" style={{ fontSize: 9.5, padding: '2px 7px', borderRadius: 5, border: '1px solid var(--line)', color: 'var(--silver)', background: 'rgba(255,255,255,0.02)' }}>#{h}</span>
+                            ))}
+                          </div>
+                        </div>
+                        {pp.cta && (
+                          <div>
+                            <span className="label" style={{ fontSize: 9, display: 'block', marginBottom: 4 }}>call to action</span>
+                            <div className="mono" style={{ fontSize: 11, color: 'var(--txt-mid)', fontStyle: 'italic' }}>"{pp.cta}"</div>
+                          </div>
+                        )}
+                        <button className="mono"
+                          style={{ ...chip(copiedField === `${copyPlatform}:all` ? 'var(--ok)' : 'var(--silver)'), padding: '7px 0', borderRadius: 8, textAlign: 'center', width: '100%' }}
+                          onClick={async () => {
+                            const full = [pp.caption, '', pp.hashtags.map((h) => `#${h}`).join(' '), pp.cta ?? ''].filter(Boolean).join('\n');
+                            try { await navigator.clipboard.writeText(full); setCopiedField(`${copyPlatform}:all`); setTimeout(() => setCopiedField(null), 1600); } catch { /* blocked */ }
+                          }}>
+                          {copiedField === `${copyPlatform}:all` ? '✓ copied full post' : '⧉ copy full post'}
+                        </button>
+                      </div>
+                    );
+                  })()}
+                </>
               )}
             </div>
           </section>

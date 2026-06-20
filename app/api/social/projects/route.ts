@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getProject, listProjects, upsertProject, deleteProject } from '@/lib/social/db';
-import { validatePlan, type AssetMeta } from '@/lib/social/plan';
+import { validatePlan, type AssetMeta, type PostCopy } from '@/lib/social/plan';
 import { listAssets } from '@/lib/social/db';
 
 export const dynamic = 'force-dynamic';
@@ -47,6 +47,7 @@ export async function POST(req: NextRequest) {
       messages: Array.isArray(body.messages) ? body.messages : undefined,
       status: typeof body.status === 'string' ? body.status : undefined,
       output: body.output && typeof body.output === 'object' ? (body.output as Record<string, unknown>) : undefined,
+      postCopy: body.postCopy && typeof body.postCopy === 'object' ? (body.postCopy as PostCopy) : undefined,
     });
     return NextResponse.json({ ok: true, id });
   } catch (err) {

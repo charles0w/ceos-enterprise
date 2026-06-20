@@ -1,5 +1,5 @@
 import { sql } from '@vercel/postgres';
-import type { EditPlan } from './plan';
+import type { EditPlan, PostCopy } from './plan';
 
 // Social Studio persistence. Files are LOCAL-FIRST (they live in the browser's
 // OPFS, never uploaded) — Postgres only mirrors metadata, transcripts, plans
@@ -47,6 +47,7 @@ export interface SocialProjectRow {
   messages: unknown[];   // client chat view-model, capped
   status: string;
   output: Record<string, unknown> | null;
+  post_copy: PostCopy | null;
   updated_at: string;
 }
 
@@ -94,6 +95,7 @@ export async function ensureSocialTables(): Promise<void> {
       updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `;
+  await sql`ALTER TABLE social_projects ADD COLUMN IF NOT EXISTS post_copy JSONB DEFAULT NULL`;
   ensured = true;
 }
 
@@ -185,20 +187,22 @@ export async function listProjects(): Promise<SocialProjectRow[]> {
 
 export async function upsertProject(p: {
   id: string; title?: string; plan?: EditPlan | null; messages?: unknown[];
-  status?: string; output?: Record<string, unknown> | null;
+  status?: string; output?: Record<string, unknown> | null; postCopy?: PostCopy | null;
 }): Promise<void> {
   await ensureSocialTables();
   const messages = JSON.stringify((p.messages ?? []).slice(-60));
   await sql`
-    INSERT INTO social_projects (id, title, plan, messages, status, output)
+    INSERT INTO social_projects (id, title, plan, messages, status, output, post_copy)
     VALUES (${p.id}, ${p.title ?? 'Untitled cut'}, ${p.plan ? JSON.stringify(p.plan) : null}::jsonb,
-            ${messages}::jsonb, ${p.status ?? 'draft'}, ${p.output ? JSON.stringify(p.output) : null}::jsonb)
+            ${messages}::jsonb, ${p.status ?? 'draft'}, ${p.output ? JSON.stringify(p.output) : null}::jsonb,
+            ${p.postCopy ? JSON.stringify(p.postCopy) : null}::jsonb)
     ON CONFLICT (id) DO UPDATE SET
       title = COALESCE(${p.title ?? null}, social_projects.title),
       plan = COALESCE(${p.plan ? JSON.stringify(p.plan) : null}::jsonb, social_projects.plan),
       messages = CASE WHEN ${p.messages !== undefined} THEN ${messages}::jsonb ELSE social_projects.messages END,
       status = COALESCE(${p.status ?? null}, social_projects.status),
       output = COALESCE(${p.output ? JSON.stringify(p.output) : null}::jsonb, social_projects.output),
+      post_copy = COALESCE(${p.postCopy ? JSON.stringify(p.postCopy) : null}::jsonb, social_projects.post_copy),
       updated_at = now()
   `;
 }
