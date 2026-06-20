@@ -800,6 +800,86 @@ function TradingEvalCard({ fleet }: { fleet: AgentWithStatus[] }) {
   );
 }
 
+// ── company brain card ───────────────────────────────────────
+const BRAIN_DOMAIN_COLORS: Record<string, string> = {
+  finance:      '#3fe08f',
+  social:       '#6fa3f7',
+  'client-ops': '#f2c14e',
+  garage:       '#e06f3f',
+  internal:     '#c9ccd6',
+};
+
+function CompanyBrainCard() {
+  const [skills, setSkills] = useState<{ domain: string; name: string; title: string; escalate: boolean; usage_count: number }[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/brain')
+      .then((r) => r.json())
+      .then((d) => { setSkills(d.skills ?? []); setLoaded(true); })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  const domains = ['finance', 'social', 'client-ops', 'garage', 'internal'];
+  const byDomain = Object.fromEntries(domains.map((d) => [d, skills.filter((s) => s.domain === d).length]));
+  const total = skills.length;
+  const maxCount = Math.max(1, ...Object.values(byDomain));
+
+  return (
+    <section className="panel rise" style={{ marginTop: 20, animationDelay: '200ms' }}>
+      <PanelHead
+        title="Company Brain"
+        right={
+          loaded
+            ? <a href="/brain" className="mono" style={{ fontSize: 10.5, color: 'var(--silver)' }}>{total} skills →</a>
+            : <span className="mono" style={{ fontSize: 10, color: 'var(--txt-faint)' }}>loading…</span>
+        }
+      />
+      <div style={{ padding: '12px 16px 16px' }}>
+        {!loaded ? (
+          <span className="mono" style={{ fontSize: 10.5, color: 'var(--txt-faint)' }}>reading the brain…</span>
+        ) : total === 0 ? (
+          <span className="mono" style={{ fontSize: 10.5, color: 'var(--txt-faint)' }}>
+            no skills yet — <a href="/brain" style={{ color: 'var(--silver)' }}>open the brain →</a>
+          </span>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {domains.map((d) => {
+              const count = byDomain[d];
+              const color = BRAIN_DOMAIN_COLORS[d] ?? 'var(--silver)';
+              const pct = count / maxCount;
+              return (
+                <div key={d}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+                    <span className="label" style={{ letterSpacing: '0.12em', fontSize: 9, color: 'var(--txt-faint)' }}>
+                      {d.toUpperCase()}
+                    </span>
+                    <span className="mono tnum" style={{ fontSize: 10, color: count > 0 ? color : 'var(--txt-faint)' }}>
+                      {count}
+                    </span>
+                  </div>
+                  <div style={{ height: 3, borderRadius: 99, background: 'rgba(255,255,255,0.05)' }}>
+                    {count > 0 && (
+                      <div style={{
+                        height: '100%', width: `${Math.round(pct * 100)}%`, borderRadius: 99,
+                        background: color, opacity: 0.75,
+                        transition: 'width 1s cubic-bezier(.2,.7,.3,1)',
+                      }} />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            <div className="mono" style={{ fontSize: 9.5, color: 'var(--txt-faint)', marginTop: 4 }}>
+              {skills.filter((s) => s.escalate).length} require Charles · {skills.filter((s) => !s.escalate).length} autonomous
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 // ── pixel M4 — drives across the garage floor ─────────────────
 // pixel-bmw-t.png is the flood-filled true-transparency cut: screen
 // blending breaks inside this animated wrapper, so the asset itself
@@ -930,6 +1010,7 @@ export function FleetDashboard({ initial, growthStats, jobStats, garage, initial
       <Delegations tasks={tasks} nameFor={nameFor} />
       <FleetQuality fleet={fleet} trends={trends} />
       <TradingEvalCard fleet={fleet} />
+      {!demo && <CompanyBrainCard />}
 
       <PixelM4 />
       <p className="mono" style={{ fontSize: 11, color: 'var(--txt-faint)', margin: '18px 0 0', textAlign: 'center' }}>

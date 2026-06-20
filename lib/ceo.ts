@@ -6,6 +6,8 @@ import { recordProfit } from './garage';
 import { logEvent } from './events';
 import { AGENTS } from './agents';
 import { searchMemory, getMemory, listMemory, upsertMemory } from './aiMemory';
+import { listSkills, incrementSkillUsage } from './brain/db';
+import { rankSkills } from './brain/skills';
 
 // The "CEO" — head orchestrator of Charles's AI fleet. Runs on Opus 4.8 with a
 // small tool surface: recall/read/append the shared AI-memory graph, inspect the
@@ -47,7 +49,8 @@ Operating principles:
 - Only append_memory for genuinely durable, reusable knowledge (a decision, a stable preference, a new fact about the fleet) — not for transient chatter.
 - Track your delegations: call list_tasks before delegating (avoid duplicate tasks) and whenever Charles asks what's open. Agents service their own queue (fleet_tasks clients in their repos); use update_task_status only when Charles confirms an outcome.
 - The Garage is funded by REALIZED agent profit only. record_profit solely when Charles states money actually settled — never estimates, never paper-trading results, and never Growth's closed deals (those are counted automatically from the businesses table).
-- Current Claude models: Opus 4.8, Sonnet 4.6, Haiku 4.5. Never reference retired model names.`;
+- Current Claude models: Opus 4.8, Sonnet 4.6, Haiku 4.5. Never reference retired model names.
+- Company Brain: before making any operational decision (pricing, publishing, trading, delegating), call query_brain with relevant keywords. Match the returned skill triggers against the situation. If a skill applies, follow its knowledge. If escalate=true, always surface to Charles first.`;
 
 const TOOLS: Anthropic.Tool[] = [
   {
@@ -136,6 +139,21 @@ const TOOLS: Anthropic.Tool[] = [
         note: { type: 'string', description: 'Short provenance note, e.g. "card flip: PSA 10 Charizard"' },
       },
       required: ['agentId', 'amount'],
+    },
+  },
+  {
+    name: 'query_brain',
+    description:
+      "Search the Company Brain — the structured skills file that codifies how Charles's company operates. Returns matching skills with their triggers, knowledge, and escalation requirements. Call this before making any operational decision so the fleet acts consistently with established rules.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'What you need guidance on — e.g. "client discount", "trade entry", "post approval", "delegation", "profit recording"',
+        },
+      },
+      required: ['query'],
     },
   },
   {
@@ -243,6 +261,20 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<st
       await logEvent(agentId, 'ok', `profit realized — ${amount >= 0 ? '+' : '-'}$${Math.abs(amount).toFixed(2)}${note ? ` · ${note}` : ''} (via CEO)`);
       const sign = amount >= 0 ? '+' : '';
       return `Recorded ${sign}$${Math.abs(amount).toFixed(2)}${amount < 0 ? ' loss' : ''} for ${agentId} — The Garage ledger moved.`;
+    }
+    case 'query_brain': {
+      const query = String(input.query ?? '').trim();
+      if (!query) return 'query_brain requires a non-empty query.';
+      const all = await listSkills();
+      const hits = rankSkills(all, query).slice(0, 5);
+      if (!hits.length) return `No skills matched "${query}". The brain may need a new skill for this situation.`;
+      // increment usage in the background — don't await so we don't slow the agent loop
+      for (const s of hits) incrementSkillUsage(s.name).catch(() => {});
+      return hits
+        .map((s) =>
+          `[${s.name}] ${s.title} (${s.domain}, confidence ${Math.round(s.confidence * 100)}%, escalate: ${s.escalate ? 'YES — must surface to Charles' : 'no'})\nTrigger: ${s.trigger}\n${s.knowledge}`
+        )
+        .join('\n\n---\n\n');
     }
     case 'append_memory': {
       await upsertMemory({

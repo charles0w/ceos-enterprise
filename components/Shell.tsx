@@ -9,6 +9,7 @@ export const NAV_TABS = [
   { label: 'Ask the CEO',   href: '/ceo',        isNew: true },
   { label: 'Memory graph',  href: '/graph',      isNew: true },
   { label: 'Social studio', href: '/social',     isNew: true },
+  { label: 'Company Brain', href: '/brain',      isNew: true },
   { label: 'Pipeline',      href: '/businesses' },
   { label: 'Finance',       href: '/finance',    isNew: true },
   { label: 'Portfolio',     href: '/portfolio' },
