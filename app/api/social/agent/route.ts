@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runSocialAgent, type WireMsg } from '@/lib/social/agent';
 import { listAssets, listReferences } from '@/lib/social/db';
-import type { EditPlan } from '@/lib/social/plan';
+import type { EditPlan, PostCopy } from '@/lib/social/plan';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -12,7 +12,7 @@ export const maxDuration = 60;
 // agent always plans against the source of truth.
 
 export async function POST(req: NextRequest) {
-  let body: { messages?: WireMsg[]; currentPlan?: EditPlan | null };
+  let body: { messages?: WireMsg[]; currentPlan?: EditPlan | null; currentPostCopy?: PostCopy | null };
   try {
     body = await req.json();
   } catch {
@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
       assets,
       references,
       currentPlan: body.currentPlan ?? null,
+      currentPostCopy: body.currentPostCopy ?? null,
     });
     return NextResponse.json(result);
   } catch (err) {

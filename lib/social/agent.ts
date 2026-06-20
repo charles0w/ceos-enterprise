@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { validatePlan, planDuration, PLAN_SCHEMA_DOC, type EditPlan, type AssetMeta } from './plan';
+import { validatePlan, planDuration, PLAN_SCHEMA_DOC, type EditPlan, type AssetMeta, type PostCopy, type PlatformPost } from './plan';
 import type { SocialAssetRow, SocialReferenceRow, Transcript } from './db';
 
 // The Social Studio editor agent. Runs on Sonnet 4.6 (cheap + fast — the CEO
@@ -16,7 +16,8 @@ export interface SocialTrace { tool: string; input: unknown; resultPreview: stri
 
 export interface SocialAgentResult {
   reply: string;
-  plan: EditPlan | null;     // newest accepted plan this turn, if any
+  plan: EditPlan | null;       // newest accepted plan this turn, if any
+  postCopy: PostCopy | null;   // newest accepted post copy this turn, if any
   trace: SocialTrace[];
 }
 
@@ -41,7 +42,24 @@ How to work:
 - Caption timing math must be exact: final time of a source moment t in clip k = sum of durations of clips 0..k-1 + (t - clip_k.in) / clip_k.speed.
 - You cannot: generate footage, see un-attached video content, post to platforms, or use transitions beyond cut/fade. Say so plainly if asked.
 
-${PLAN_SCHEMA_DOC}`;
+${PLAN_SCHEMA_DOC}
+
+## POST COPY PACKAGING
+
+After set_edit_plan is accepted on a first cut or a significant content change, call set_post_copy proactively. Include only platforms that match the aspect ratio and content type — omit platforms that don't fit.
+
+Aspect-to-platform mapping:
+- 9:16 (vertical short-form) → tiktok + instagram; youtube optional
+- 1:1 (square) → instagram + twitter
+- 16:9 (landscape) → youtube; twitter optional
+
+Platform rules (write copy that earns the click on each platform):
+- tiktok: caption ≤150 chars ideal (hard max 2200), gen-Z conversational tone, hook as the very first sentence, 5–10 hashtags (no # prefix), optional CTA
+- instagram: hook on first line (only ~125 chars show before "more" — it must work standalone), aesthetic tone, 10–20 hashtags, CTA drives follow or "link in bio"
+- youtube: first line IS the video title (≤100 chars, title-case, curiosity-gap or benefit-driven), 3–5 hashtags, CTA drives subscribe or watch-next
+- twitter: caption + space + hashtags + space + CTA ≤280 chars total; 1–3 hashtags; punchy and direct
+
+Do NOT call set_post_copy for minor plan tweaks (adjusting a single clip's in/out, fixing a caption typo, changing speed). Call it when: (1) the first complete plan is accepted, (2) the user asks for captions/hashtags/post copy, or (3) the content title or concept changes significantly. If the user asks to refine copy, call set_post_copy again with the revised text.`;
 
 const TOOLS: Anthropic.Tool[] = [
   {
@@ -54,6 +72,56 @@ const TOOLS: Anthropic.Tool[] = [
         plan: { type: 'object', description: 'The complete EditPlan JSON object' },
       },
       required: ['plan'],
+    },
+  },
+  {
+    name: 'set_post_copy',
+    description:
+      'Package platform-specific post copy for the current edit. Call proactively after set_edit_plan succeeds on a first/major cut, or when the user asks for captions or hashtags. Include only platforms that match the aspect ratio — omit platforms that don\'t fit (e.g. skip tiktok for 16:9 content).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        tiktok: {
+          type: 'object',
+          description: '9:16 content. Caption ≤150 chars ideal, gen-Z tone, hook first. 5–10 hashtags (no # prefix). CTA optional.',
+          properties: {
+            caption: { type: 'string' },
+            hashtags: { type: 'array', items: { type: 'string' } },
+            cta: { type: 'string' },
+          },
+          required: ['caption', 'hashtags'],
+        },
+        instagram: {
+          type: 'object',
+          description: 'Hook on first line (≤125 chars shown before "more"). Aesthetic tone. 10–20 hashtags. CTA.',
+          properties: {
+            caption: { type: 'string' },
+            hashtags: { type: 'array', items: { type: 'string' } },
+            cta: { type: 'string' },
+          },
+          required: ['caption', 'hashtags'],
+        },
+        youtube: {
+          type: 'object',
+          description: 'First line is the video title (≤100 chars, title-case, click-worthy). 3–5 hashtags. CTA drives subscribe.',
+          properties: {
+            caption: { type: 'string' },
+            hashtags: { type: 'array', items: { type: 'string' } },
+            cta: { type: 'string' },
+          },
+          required: ['caption', 'hashtags'],
+        },
+        twitter: {
+          type: 'object',
+          description: 'Entire post (caption + hashtags + CTA) ≤280 chars total. 1–3 hashtags. Punchy and direct.',
+          properties: {
+            caption: { type: 'string' },
+            hashtags: { type: 'array', items: { type: 'string' } },
+            cta: { type: 'string' },
+          },
+          required: ['caption', 'hashtags'],
+        },
+      },
     },
   },
   {
@@ -77,7 +145,7 @@ function transcriptPreview(t: Transcript | null): string {
   return `${segs}${more}`;
 }
 
-function libraryContext(assets: SocialAssetRow[], references: SocialReferenceRow[], currentPlan: EditPlan | null): string {
+function libraryContext(assets: SocialAssetRow[], references: SocialReferenceRow[], currentPlan: EditPlan | null, currentPostCopy: PostCopy | null): string {
   const lib = assets.length
     ? assets.map((a) =>
         `- id=${a.id} · ${a.kind} · "${a.name}"` +
@@ -94,7 +162,7 @@ function libraryContext(assets: SocialAssetRow[], references: SocialReferenceRow
       ).join('\n')
     : '(none yet)';
 
-  return `## LIBRARY (asset ids are the only valid clip sources)\n${lib}\n\n## INSPIRATION REFERENCES\n${refs}\n\n## CURRENT PLAN\n${currentPlan ? JSON.stringify(currentPlan) : '(none — you are making the first cut)'}`;
+  return `## LIBRARY (asset ids are the only valid clip sources)\n${lib}\n\n## INSPIRATION REFERENCES\n${refs}\n\n## CURRENT PLAN\n${currentPlan ? JSON.stringify(currentPlan) : '(none — you are making the first cut)'}\n\n## CURRENT POST COPY\n${currentPostCopy ? JSON.stringify(currentPostCopy) : '(none — call set_post_copy after the plan is set)'}`;
 }
 
 function dataUrlToImageBlock(dataUrl: string): Anthropic.ImageBlockParam | null {
@@ -131,6 +199,7 @@ export async function runSocialAgent(opts: {
   assets: SocialAssetRow[];
   references: SocialReferenceRow[];
   currentPlan: EditPlan | null;
+  currentPostCopy: PostCopy | null;
 }): Promise<SocialAgentResult> {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error('ANTHROPIC_API_KEY is not set on the server.');
@@ -138,11 +207,12 @@ export async function runSocialAgent(opts: {
   const client = new Anthropic();
   const trace: SocialTrace[] = [];
   let acceptedPlan: EditPlan | null = null;
+  let acceptedPostCopy: PostCopy | null = null;
 
   const assetMeta: AssetMeta[] = opts.assets.map((a) => ({ id: a.id, kind: a.kind, duration: a.duration }));
   const system: Anthropic.TextBlockParam[] = [
     { type: 'text', text: SYSTEM },
-    { type: 'text', text: libraryContext(opts.assets, opts.references, opts.currentPlan) },
+    { type: 'text', text: libraryContext(opts.assets, opts.references, opts.currentPlan, opts.currentPostCopy) },
   ];
   const convo: Anthropic.MessageParam[] = toAnthropicMessages(opts.messages);
 
@@ -163,7 +233,7 @@ export async function runSocialAgent(opts: {
         .map((b) => b.text)
         .join('\n')
         .trim();
-      return { reply: reply || '(no text reply)', plan: acceptedPlan, trace };
+      return { reply: reply || '(no text reply)', plan: acceptedPlan, postCopy: acceptedPostCopy, trace };
     }
 
     const toolUses = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
@@ -179,6 +249,26 @@ export async function runSocialAgent(opts: {
             out = `Plan accepted: ${v.plan.clips.length} clips, ${(v.plan.captions ?? []).length} captions, ${planDuration(v.plan).toFixed(1)}s total at ${v.plan.aspect}.`;
           } else {
             out = `Plan REJECTED — fix these and call set_edit_plan again:\n- ${v.errors.join('\n- ')}`;
+          }
+        } else if (tu.name === 'set_post_copy') {
+          const input = (tu.input ?? {}) as Partial<Record<keyof PostCopy, Partial<PlatformPost>>>;
+          const platforms = (['tiktok', 'instagram', 'youtube', 'twitter'] as const).filter((p) => input[p]);
+          if (platforms.length === 0) {
+            out = 'set_post_copy called with no platforms — include at least one of: tiktok, instagram, youtube, twitter.';
+          } else {
+            const copy: PostCopy = {};
+            for (const p of platforms) {
+              const pp = input[p];
+              if (pp && typeof pp.caption === 'string' && Array.isArray(pp.hashtags)) {
+                copy[p] = {
+                  caption: pp.caption.slice(0, 2200),
+                  hashtags: (pp.hashtags as unknown[]).slice(0, 30).map((h) => String(h).replace(/^#/, '')),
+                  ...(pp.cta ? { cta: String(pp.cta).slice(0, 140) } : {}),
+                };
+              }
+            }
+            acceptedPostCopy = copy;
+            out = `Post copy set for: ${Object.keys(copy).join(', ')}.`;
           }
         } else if (tu.name === 'get_transcript') {
           const id = String((tu.input as { assetId?: string })?.assetId ?? '');
@@ -208,6 +298,7 @@ export async function runSocialAgent(opts: {
       ? 'Plan updated (hit the tool-iteration limit while refining — ask me to continue if something looks off).'
       : 'I hit the tool-iteration limit before landing a valid plan. Ask me to continue.',
     plan: acceptedPlan,
+    postCopy: acceptedPostCopy,
     trace,
   };
 }
