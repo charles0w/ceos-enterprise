@@ -33,27 +33,20 @@ export const dynamic = 'force-dynamic';
 export async function POST() {
   try {
     const skills = await listSkills();
-    const results = await Promise.allSettled(
-      skills.map((s) =>
-        pushVaultFile(
-          `brain/skills/${s.name}.md`,
-          skillToMarkdown(s),
-          `brain: sync skill "${s.name}"`,
-        ),
-      ),
-    );
-
     let pushed = 0;
     const errors: string[] = [];
-    for (let i = 0; i < results.length; i++) {
-      const r = results[i];
-      if (r.status === 'fulfilled' && r.value.ok) {
+
+    // Serialize pushes to avoid SHA race conditions with concurrent commits
+    for (const s of skills) {
+      const result = await pushVaultFile(
+        `brain/skills/${s.name}.md`,
+        skillToMarkdown(s),
+        `brain: sync skill "${s.name}"`,
+      );
+      if (result.ok) {
         pushed++;
       } else {
-        const msg = r.status === 'rejected'
-          ? String(r.reason)
-          : (r.value.error ?? 'unknown');
-        errors.push(`${skills[i].name}: ${msg}`);
+        errors.push(`${s.name}: ${result.error ?? 'unknown'}`);
       }
     }
 
