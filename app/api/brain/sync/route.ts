@@ -32,7 +32,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST() {
   try {
-    const skills = await listSkills();
+    const skills = await listSkills(undefined, { includeAll: true });
     let pushed = 0;
     const errors: string[] = [];
 

@@ -13,11 +13,17 @@ export interface Skill {
   confidence: number;     // 0–1, how battle-tested is this rule
   source: string;         // 'manual' | 'vault://...' | 'inferred'
   usage_count: number;    // how many times an agent has cited this skill
+  status: 'active' | 'proposed' | 'retired';
+  last_fired: string | null;
+  outcomes: { good: number; bad: number };
+  evidence: string[];
   created_at: string;
   updated_at: string;
 }
 
-export type SkillInsert = Omit<Skill, 'id' | 'usage_count' | 'created_at' | 'updated_at'>;
+export type SkillInsert =
+  Omit<Skill, 'id' | 'usage_count' | 'created_at' | 'updated_at' | 'status' | 'last_fired' | 'outcomes' | 'evidence'>
+  & Partial<Pick<Skill, 'status' | 'last_fired' | 'outcomes' | 'evidence'>>;
 
 // Simple keyword relevance — ranks skills against a free-text query without a vector DB.
 export function rankSkills(skills: Skill[], query: string): Skill[] {

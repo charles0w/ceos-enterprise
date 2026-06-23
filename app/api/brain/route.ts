@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
         : NextResponse.json({ error: 'not found' }, { status: 404 });
     }
 
-    const skills = await listSkills(domain);
+    const skills = await listSkills(domain, { includeAll: true });
     const results = q ? rankSkills(skills, q) : skills;
     return NextResponse.json({ skills: results, total: skills.length });
   } catch (err) {
