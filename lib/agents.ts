@@ -61,8 +61,8 @@ export const AGENTS: Agent[] = [
     id: 'school',
     name: 'School / Tutor',
     role: 'Coursework, deadlines, tutoring (vault-aware)',
-    ownerRepo: '(new — Phase 4)',
-    skills: ['calendar', 'study', 'vault'],
-    schedule: '—',
+    ownerRepo: 'obi-secondbrain (vault: school/fall-2026)',
+    skills: ['calendar', 'study', 'vault', 'tutoring'],
+    schedule: 'daily deadline scan 8am PT',
   },
 ];

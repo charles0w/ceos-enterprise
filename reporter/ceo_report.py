@@ -68,6 +68,8 @@ judge() provider — pick ONE:
 > judge(both=True) calls both providers and returns agreement/delta for a quick
 > cross-family sanity check on a single output.
 """
+from __future__ import annotations
+
 import math
 import os
 import json

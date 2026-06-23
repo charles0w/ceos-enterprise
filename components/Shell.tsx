@@ -12,6 +12,7 @@ export const NAV_TABS = [
   { label: 'Company Brain', href: '/brain',      isNew: true },
   { label: 'Pipeline',      href: '/businesses' },
   { label: 'Finance',       href: '/finance',    isNew: true },
+  { label: 'Academics',     href: '/academics',  isNew: true },
   { label: 'Portfolio',     href: '/portfolio' },
 ] as const;
 
