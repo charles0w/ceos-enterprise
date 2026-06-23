@@ -12,6 +12,7 @@ const PUBLIC_PREFIXES = [
   '/api/tasks',    // dual-auth inside the route: session cookie (dashboard) or x-report-secret (agents)
   '/api/memory',     // ai-memory vault<->DB sync authenticates with x-report-secret
   '/api/brain/sync', // push skills to vault — write-only, no sensitive data exposed
+  '/api/brain/ingest', // vault→DB policy push — authenticates with x-report-secret
   '/api/cron',       // Vercel Cron authenticates with CRON_SECRET, not a session cookie
   '/_next',
   '/favicon',
