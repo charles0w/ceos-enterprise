@@ -53,9 +53,7 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ ok: true, upserted, skipped });
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
+    console.error('[brain/ingest] error:', err);
+    return NextResponse.json({ error: 'internal error' }, { status: 500 });
   }
 }
