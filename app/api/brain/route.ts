@@ -36,8 +36,10 @@ export async function POST(req: NextRequest) {
     if (!body.name || !body.title || !body.trigger || !body.knowledge || !body.domain) {
       return NextResponse.json({ error: 'name, title, trigger, knowledge, and domain are required' }, { status: 400 });
     }
-    const skill = await upsertSkill({
-      name: String(body.name).toLowerCase().replace(/\s+/g, '-').slice(0, 80),
+    const skillName = String(body.name).toLowerCase().replace(/\s+/g, '-').slice(0, 80);
+    const existing = await getSkill(skillName);
+    const toUpsert = {
+      name: skillName,
       title: String(body.title).slice(0, 120),
       trigger: String(body.trigger).slice(0, 400),
       knowledge: String(body.knowledge).slice(0, 8000),
@@ -45,7 +47,12 @@ export async function POST(req: NextRequest) {
       escalate: Boolean(body.escalate),
       confidence: Math.min(1, Math.max(0, Number(body.confidence ?? 0.8))),
       source: String(body.source || 'manual').slice(0, 80),
-    });
+      status: existing?.status ?? 'active',
+      last_fired: existing?.last_fired ?? null,
+      outcomes: existing?.outcomes ?? { good: 0, bad: 0 },
+      evidence: existing?.evidence ?? [],
+    };
+    const skill = await upsertSkill(toUpsert);
     return NextResponse.json({ ok: true, skill });
   } catch (err) {
     return NextResponse.json(
