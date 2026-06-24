@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { upsertSkill } from '@/lib/brain/db';
+import { upsertSkill, listSkills } from '@/lib/brain/db';
 import type { SkillInsert, SkillDomain } from '@/lib/brain/skills';
 import { SKILL_DOMAINS } from '@/lib/brain/skills';
 
@@ -54,6 +54,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, upserted, skipped });
   } catch (err) {
     console.error('[brain/ingest] error:', err);
+    return NextResponse.json({ error: 'internal error' }, { status: 500 });
+  }
+}
+
+export async function GET(req: NextRequest) {
+  if (!authed(req)) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+  try {
+    const skills = await listSkills(undefined, { includeAll: true });
+    return NextResponse.json({
+      skills: skills.map((s) => ({
+        name: s.name,
+        usage_count: s.usage_count,
+        last_fired: s.last_fired,
+        outcomes: s.outcomes,
+        status: s.status,
+        confidence: s.confidence,
+        updated_at: s.updated_at,
+      })),
+    });
+  } catch (err) {
+    console.error('[brain/ingest GET] error:', err);
     return NextResponse.json({ error: 'internal error' }, { status: 500 });
   }
 }
