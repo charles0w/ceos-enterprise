@@ -1,0 +1,31 @@
+name: Auto-Remediate Overdue Agents
+
+# Closes the loop: on a cadence, check /api/health for OVERDUE scheduled agents
+# and file a run-request for each (POST /api/agents/{id}/run) with retry →
+# escalate, logging a JSON audit trail. On-demand/idle agents are never touched.
+# Runs less often than the monitor so agents have time to self-recover first
+# (see remediation.cooldown_minutes in infra/slo.yml).
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+# Don't let two remediation runs overlap.
+concurrency:
+  group: remediate
+  cancel-in-progress: false
+
+jobs:
+  remediate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Detect overdue → file run-requests → escalate
+        env:
+          HEALTH_URL: ${{ secrets.HEALTH_URL }}              # https://ceos-enterprise.vercel.app/api/health
+          REPORT_SECRET: ${{ secrets.REPORT_SECRET }}        # authenticates the run endpoint (same as Vercel REPORT_SECRET)
+          ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }} # Discord/Slack — escalation only
+        run: node scripts/runbook-restart-stale.mjs
