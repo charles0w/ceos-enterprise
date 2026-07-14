@@ -60,6 +60,42 @@ GitHub Action in the agent repo — nothing runs 24/7; the runner wakes, drains,
 separate from failure alerts (monitor/runbook). Requires `ALERT_WEBHOOK_URL` set in
 the Vercel env. Disable with `NOTIFY_ON_REPORT=0`.
 
+## Context API — agents read Charles's brain
+
+`GET /api/context` is the single way every agent reads the living Obsidian context
+(the Postgres mirror of `ai-memory/`, synced by `ai-memory/scripts/sync-db.mjs`).
+Obsidian stays the source of truth; this is a read-only projection so cloud agents
+(Vercel / GitHub Actions) can query it without touching Charles's Mac.
+
+```
+GET /api/context?q=<query>[&limit=n]   → ranked note snippets (search)
+GET /api/context?slug=<slug>           → one full note
+GET /api/context?list[=kind]           → index of notes (optionally by kind)
+```
+
+Auth: `x-report-secret` (agents/hooks) or the dashboard session cookie.
+
+```bash
+curl -s "https://ceos-enterprise.vercel.app/api/context?q=jobs%20strategy" \
+  -H "x-report-secret: $REPORT_SECRET" | jq
+```
+
+Python agents — vendor `reporter/context.py`:
+
+```python
+from context import recall, get_note, list_notes
+for hit in recall("jobs agent strategy"):
+    print(hit["title"], "—", hit["snippet"])
+```
+
+TS agents — thin fetch (canonical twin, drop into the agent repo):
+
+```ts
+const r = await fetch(`${FLEET_URL}/api/context?q=${encodeURIComponent(query)}`,
+  { headers: { 'x-report-secret': process.env.REPORT_SECRET! } });
+const { results } = await r.json();
+```
+
 ## Runbook: Agent is overdue (scheduled agent missed its window)
 
 **Symptom:** `/api/health` reports `503` with a stale agent, or a Discord alert fires.
