@@ -1,20 +1,19 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@vercel/postgres';
 import { kv } from '@vercel/kv';
-import { AGENTS } from '@/lib/agents';
-import { classifyFleet, type AgentRow } from '@/lib/health';
+import { AGENTS, agentRuntime } from '@/lib/agents';
+import { classifyFleet, type AgentRow, type AgentRuntimeCfg } from '@/lib/health';
 
 // READINESS check for the CEO's Enterprise fleet dashboard: dependency
-// reachability (Postgres/KV) + FLEET FRESHNESS (each registered agent has
-// self-reported within its staleness budget, via agent_status.last_run).
-// Returns 200 healthy / 503 degraded so container HEALTHCHECK, Vercel monitors,
-// and scripts/monitor.mjs all key off HTTP status.  Liveness lives at
-// /api/health/live (process-only, never touches the DB).
+// reachability (Postgres/KV) + FLEET FRESHNESS. Freshness is cadence-aware:
+// each agent is judged against its own mode/cadence (lib/agents.ts) — scheduled
+// agents go "overdue" only when they miss cadence + grace; on-demand agents are
+// "idle"/"ready" and never degrade the fleet. Returns 200 healthy / 503 degraded
+// so container HEALTHCHECK, Vercel monitors, and scripts/monitor.mjs key off the
+// HTTP status. Liveness lives at /api/health/live (process-only, never hits the DB).
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-
-const STALE_MINUTES = Number(process.env.AGENT_STALE_MINUTES ?? '15');
 
 type Check = { name: string; ok: boolean; detail?: string; latencyMs?: number };
 
@@ -38,7 +37,11 @@ async function checkKV(): Promise<Check> {
 }
 
 async function loadFleet(): Promise<{ check: Check; agents: unknown[] }> {
-  const active = AGENTS.filter((a) => a.ownerRepo && !a.ownerRepo.startsWith('(')).map((a) => a.id);
+  // Only agents with a real owner repo are monitored; each carries its resolved cadence.
+  const cfgs: AgentRuntimeCfg[] = AGENTS
+    .filter((a) => a.ownerRepo && !a.ownerRepo.startsWith('('))
+    .map((a) => ({ id: a.id, ...agentRuntime(a) }));
+
   const [rows, , err] = await timed(async () => {
     const { rows } = await sql`
       SELECT s.id, s.last_run, s.ok, COALESCE(e.errors, 0) AS recent_errors
@@ -55,9 +58,9 @@ async function loadFleet(): Promise<{ check: Check; agents: unknown[] }> {
 
   if (err || !rows) return { check: { name: 'fleet', ok: false, detail: err?.message ?? 'query-failed' }, agents: [] };
 
-  const { agents, staleIds, fleetOk } = classifyFleet(rows, active, Date.now(), STALE_MINUTES);
+  const { agents, overdueIds, fleetOk } = classifyFleet(rows, cfgs, Date.now());
   return {
-    check: { name: 'fleet', ok: fleetOk, detail: staleIds.length ? `stale: ${staleIds.join(', ')}` : 'all fresh' },
+    check: { name: 'fleet', ok: fleetOk, detail: overdueIds.length ? `overdue: ${overdueIds.join(', ')}` : 'all on schedule' },
     agents,
   };
 }
@@ -73,7 +76,6 @@ export async function GET() {
       timestamp: new Date().toISOString(),
       uptimeSeconds: Math.round(process.uptime()),
       version: process.env.VERCEL_GIT_COMMIT_SHA ?? 'local',
-      staleThresholdMinutes: STALE_MINUTES,
       checks,
       agents: fleet.agents,
     },

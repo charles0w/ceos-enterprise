@@ -76,3 +76,32 @@ export async function updateTaskStatus(id: number, status: TaskStatus): Promise<
   const { rowCount } = await sql`UPDATE fleet_tasks SET status = ${status} WHERE id = ${id}`;
   return (rowCount ?? 0) > 0;
 }
+
+// Enqueue a task for an agent (status 'queued'). The agent services it when it
+// next wakes/polls (reporter/fleet_tasks.py). A "run request" is just a task —
+// this is what POST /api/agents/{id}/run writes. Idempotency: if an identical
+// queued row already exists we return it instead of stacking duplicates.
+export async function enqueueTask(
+  agentId: string,
+  opts: { title: string; spec?: string; createdBy?: string; dedupe?: boolean },
+): Promise<FleetTask> {
+  await ensureTasksTable();
+  const spec = opts.spec ?? '';
+  const createdBy = opts.createdBy ?? 'api';
+
+  if (opts.dedupe !== false) {
+    const { rows } = await sql<TaskRow>`
+      SELECT * FROM fleet_tasks
+      WHERE agent_id = ${agentId} AND title = ${opts.title} AND status = 'queued'
+      ORDER BY created_at DESC LIMIT 1
+    `;
+    if (rows[0]) return toTask(rows[0]);
+  }
+
+  const { rows } = await sql<TaskRow>`
+    INSERT INTO fleet_tasks (agent_id, title, spec, created_by)
+    VALUES (${agentId}, ${opts.title}, ${spec}, ${createdBy})
+    RETURNING *
+  `;
+  return toTask(rows[0]);
+}

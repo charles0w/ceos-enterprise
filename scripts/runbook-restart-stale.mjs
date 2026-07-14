@@ -37,7 +37,11 @@ function audit(event, data = {}) {
 
 async function main() {
   const HEALTH_URL = process.env.HEALTH_URL;
-  const RETRIGGER_BASE = process.env.RETRIGGER_URL_BASE;
+  // Default the retrigger target to the fleet run endpoint derived from HEALTH_URL,
+  // e.g. https://…/api/health → https://…/api/agents/{agent}/run. Overridable.
+  const RETRIGGER_BASE = process.env.RETRIGGER_URL_BASE
+    ?? (process.env.HEALTH_URL ? process.env.HEALTH_URL.replace(/\/api\/health.*$/, '/api/agents/{agent}/run') : undefined);
+  const REPORT_SECRET = process.env.REPORT_SECRET; // machine auth for the run endpoint
   const WEBHOOK = process.env.ALERT_WEBHOOK_URL;
   if (!HEALTH_URL) { console.error('HEALTH_URL required'); process.exit(2); }
 
@@ -52,7 +56,14 @@ async function main() {
     if (!RETRIGGER_BASE) { audit('retrigger_skipped', { agent, reason: 'no RETRIGGER_URL_BASE' }); return false; }
     const url = RETRIGGER_BASE.replace('{agent}', encodeURIComponent(agent));
     try {
-      const res = await fetch(url, { method: 'POST' });
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(REPORT_SECRET ? { 'x-report-secret': REPORT_SECRET } : {}),
+        },
+        body: JSON.stringify({ source: 'runbook', reason: 'auto-remediation: agent overdue' }),
+      });
       audit('retrigger', { agent, status: res.status });
       return res.ok;
     } catch (e) {

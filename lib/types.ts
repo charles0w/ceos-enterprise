@@ -5,6 +5,15 @@ export interface Agent {
   ownerRepo: string;
   skills: string[];
   schedule: string;
+  // ── Runtime cadence (optional, backward-compatible) ──────────
+  // Lets health distinguish "overdue" from merely "idle" so on-demand agents
+  // aren't flagged degraded just for not running.
+  //   scheduled  — runs on a cadence; overdue if it misses cadenceMinutes + grace
+  //   on-demand  — only runs when triggered (button / hook / queue); never overdue
+  //   continuous — expected always-fresh (rare); overdue past a short grace
+  mode?: 'scheduled' | 'on-demand' | 'continuous';
+  cadenceMinutes?: number; // expected interval between runs (scheduled / continuous)
+  graceMinutes?: number;   // slack past cadence before "overdue"
 }
 
 // One headline number an agent reports for its dashboard card (max 3 shown).

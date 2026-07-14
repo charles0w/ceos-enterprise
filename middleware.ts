@@ -16,6 +16,7 @@ const PUBLIC_PREFIXES = [
   '/api/cron',       // Vercel Cron authenticates with CRON_SECRET, not a session cookie
   '/api/health',     // liveness/readiness probe — public so uptime monitors can reach it
   '/api/metrics',    // Prometheus exposition — public reachability; route enforces optional METRICS_TOKEN
+  '/api/agents/',    // subpaths only (e.g. {id}/run) — route enforces x-report-secret/session; bare /api/agents stays gated
   '/_next',
   '/favicon',
   '/icon',      // app icon (also used on the public login screen)

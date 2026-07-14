@@ -10,7 +10,31 @@ are automated by scripts referenced below.
 - **Metrics:** `GET /api/metrics` (Prometheus/OpenMetrics).
 - **Synthetic probe & alerting:** `scripts/monitor.mjs`, scheduled by `.github/workflows/monitor.yml` (every 10 min).
 
-## Runbook: Agent has gone stale (no heartbeat)
+## Fleet model: scheduled vs on-demand
+
+Agents carry a `mode` in `lib/agents.ts`. **Scheduled** agents run on a cadence and go
+`overdue` if they miss `cadenceMinutes + graceMinutes`. **On-demand** agents (e.g. `jobs`,
+`hobbies`) only run when triggered and are never "overdue" — they show `idle`/`ready`.
+So `/api/health` = `degraded` means a *scheduled* agent missed its window, not that an idle
+agent hasn't run. `/api/health` returns each agent's `status` and `dueInMinutes`.
+
+## Trigger an on-demand run (pull queue)
+
+`POST /api/agents/{id}/run` enqueues a run-request onto the delegation queue
+(`fleet_tasks`). The agent picks it up next time it polls via `reporter/fleet_tasks.py`
+(`GET /api/tasks?agentId={id}&status=queued`) — nothing runs 24/7. Same endpoint is the
+webhook target for any external trigger.
+
+```bash
+# from a machine / hook (x-report-secret), or the dashboard "Run" button (session cookie)
+curl -X POST https://ceos-enterprise.vercel.app/api/agents/jobs/run \
+  -H "x-report-secret: $REPORT_SECRET" \
+  -H "content-type: application/json" \
+  -d '{"reason":"manual kick"}'
+# → { "queued": true, "agent": "jobs", "taskId": 42, "status": "queued" }
+```
+
+## Runbook: Agent is overdue (scheduled agent missed its window)
 
 **Symptom:** `/api/health` reports `503` with a stale agent, or a Discord alert fires.
 

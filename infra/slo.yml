@@ -17,20 +17,22 @@ slos:
   fleet_freshness:
     target: 99.0          # % of checks where all agents are fresh
 
-# Per-agent heartbeat budgets (minutes without a run before UNHEALTHY).
-# Override the global AGENT_STALE_MINUTES per agent where cadence differs.
-agents:
-  default_stale_minutes: 15
-  overrides:
-    ceo:            30     # orchestrator runs less frequently
-    jobs:           720    # ceos-jobs recruiter — daily-ish
-    social-studio:  1440   # instagram-trend-desk — daily brief
-    trading-watch:  60     # ai-trading-bot morning/EOD
+# Per-agent cadence now lives in code, in lib/agents.ts (mode / cadenceMinutes /
+# graceMinutes), so the health route and dashboard share one source of truth:
+#   scheduled  → overdue if now - last_run > cadenceMinutes + graceMinutes
+#   on-demand  → never "overdue"; shown idle/ready, triggered via the run endpoint
+#   continuous → overdue past a short grace
+# This block documents the intent; edit the actual values in lib/agents.ts.
+fleet_model:
+  scheduled:  [commerce, finance, lambos-trader, growth, social, school]
+  on_demand:  [jobs, hobbies]
 
-# Automated remediation policy consumed by scripts/runbook-restart-stale.mjs.
+# Automated remediation consumed by scripts/runbook-restart-stale.mjs. Only
+# scheduled/continuous agents can be "overdue", so on-demand agents are never
+# auto-triggered by the runbook.
 remediation:
-  stale_agent:
-    action: retrigger      # POST the agent's re-run webhook
+  overdue_agent:
+    action: retrigger      # POST /api/agents/{agent}/run (x-report-secret) → enqueues a run request
     max_retries: 2
     cooldown_minutes: 20
     escalate_after: 2      # page a human after N failed auto-remediations
@@ -41,4 +43,4 @@ alerts:
   webhook_env: ALERT_WEBHOOK_URL
   severities:
     page:  [unreachable, db_down]
-    warn:  [stale_agent, latency_breach]
+    warn:  [overdue_agent, latency_breach]
