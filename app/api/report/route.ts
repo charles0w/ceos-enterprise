@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { upsertStatus } from '@/lib/registry';
 import { recordProfit } from '@/lib/garage';
 import { logEvent } from '@/lib/events';
+import { notifyDiscord, formatRunBrief } from '@/lib/notify';
 import type { AgentStatus, AgentMetric } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -72,6 +73,11 @@ export async function POST(req: NextRequest) {
     const sign = amount >= 0 ? '+' : '-';
     await logEvent(body.agentId, 'ok', `profit realized — ${sign}$${Math.abs(amount).toFixed(2)}${note ? ` · ${note}` : ''}`);
     profitRecorded = true;
+  }
+
+  // Post a run brief to #notifs (best-effort). Disable with NOTIFY_ON_REPORT=0.
+  if (process.env.NOTIFY_ON_REPORT !== '0') {
+    await notifyDiscord(formatRunBrief(body.agentId, status, body.profit));
   }
 
   return NextResponse.json({ ok: true, ...(profitRecorded ? { profitRecorded } : {}) });

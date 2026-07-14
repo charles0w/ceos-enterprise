@@ -34,6 +34,32 @@ curl -X POST https://ceos-enterprise.vercel.app/api/agents/jobs/run \
 # → { "queued": true, "agent": "jobs", "taskId": 42, "status": "queued" }
 ```
 
+## Unattended execution (Level 2 — the auto-runner)
+
+`reporter/fleet_runner.py` turns a queued run-request into a real run. Vendor it into
+an agent repo alongside `ceo_report.py` + `fleet_tasks.py`, then schedule it:
+
+```bash
+export FLEET_AGENT_ID=jobs
+export FLEET_RUN_CMD="python main.py"          # how this agent actually runs
+export CEOS_REPORT_SECRET=<same as dashboard>
+
+python fleet_runner.py run     # SCHEDULED agents: always run (put on a cron at the cadence)
+python fleet_runner.py drain   # ON-DEMAND agents: run only if a request is queued (light poll)
+```
+
+It claims the request (`in_progress`) → runs `FLEET_RUN_CMD` → closes it (`done`/`dropped`)
+→ reports, which posts a brief to #notifs. Set `FLEET_RUNNER_REPORT=0` if the agent already
+calls `ceo_report.report()` (avoids a double brief). Schedule with cron, macOS `launchd`, or a
+GitHub Action in the agent repo — nothing runs 24/7; the runner wakes, drains, exits.
+
+## Run notifications (#notifs)
+
+`/api/report` posts a one-line brief to `ALERT_WEBHOOK_URL` on every agent run
+(state emoji + summary + up to 3 metrics + eval score + realized profit). This is
+separate from failure alerts (monitor/runbook). Requires `ALERT_WEBHOOK_URL` set in
+the Vercel env. Disable with `NOTIFY_ON_REPORT=0`.
+
 ## Runbook: Agent is overdue (scheduled agent missed its window)
 
 **Symptom:** `/api/health` reports `503` with a stale agent, or a Discord alert fires.
