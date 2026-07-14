@@ -1,0 +1,55 @@
+# Local, reproducible dev stack: the dashboard + Postgres + Redis (KV stand-in).
+# Mirrors the Vercel Postgres/KV production topology so "works on my machine"
+# matches production. Usage:  docker compose up --build
+services:
+  web:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      POSTGRES_URL: postgres://ceos:ceos@db:5432/ceos
+      KV_URL: redis://kv:6379
+      # Staleness threshold (minutes) an agent may go without a heartbeat before it's UNHEALTHY
+      AGENT_STALE_MINUTES: "15"
+    depends_on:
+      db:
+        condition: service_healthy
+      kv:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health/live"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ceos
+      POSTGRES_PASSWORD: ceos
+      POSTGRES_DB: ceos
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ceos"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  kv:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

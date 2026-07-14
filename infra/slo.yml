@@ -1,0 +1,44 @@
+# Config-as-code for the CEO's Enterprise fleet. Single source of truth for
+# reliability thresholds, SLOs, and alert routing. Scripts and CI read this file
+# instead of hard-coding values, so operational policy lives in version control
+# and changes go through review.
+
+service: ceos-enterprise
+owner: charles
+environment: production
+
+# Service Level Objectives — what "reliable" means, measurably.
+slos:
+  availability:
+    target: 99.5          # % of successful /api/health probes over 30d
+    window_days: 30
+  latency:
+    p95_budget_ms: 2000   # health endpoint p95 must stay under this
+  fleet_freshness:
+    target: 99.0          # % of checks where all agents are fresh
+
+# Per-agent heartbeat budgets (minutes without a run before UNHEALTHY).
+# Override the global AGENT_STALE_MINUTES per agent where cadence differs.
+agents:
+  default_stale_minutes: 15
+  overrides:
+    ceo:            30     # orchestrator runs less frequently
+    jobs:           720    # ceos-jobs recruiter — daily-ish
+    social-studio:  1440   # instagram-trend-desk — daily brief
+    trading-watch:  60     # ai-trading-bot morning/EOD
+
+# Automated remediation policy consumed by scripts/runbook-restart-stale.mjs.
+remediation:
+  stale_agent:
+    action: retrigger      # POST the agent's re-run webhook
+    max_retries: 2
+    cooldown_minutes: 20
+    escalate_after: 2      # page a human after N failed auto-remediations
+
+# Alert routing.
+alerts:
+  channel: discord
+  webhook_env: ALERT_WEBHOOK_URL
+  severities:
+    page:  [unreachable, db_down]
+    warn:  [stale_agent, latency_breach]
