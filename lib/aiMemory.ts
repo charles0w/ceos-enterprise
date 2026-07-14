@@ -1,5 +1,6 @@
 import { sql } from '@vercel/postgres';
 import { pushVaultFile } from './vaultGit';
+import { rankNotes, type RankedNote } from './rank';
 
 // Shared AI-memory store for the fleet's CEO orchestrator.
 //
@@ -54,20 +55,21 @@ function rowToNote(r: Record<string, unknown>): MemoryNote {
   };
 }
 
-// Keyword search over title + body. Ranks title matches above body matches.
-// Returns short previews; the CEO calls read_memory for the full note.
-export async function searchMemory(query: string, limit = 6): Promise<MemoryNote[]> {
-  await ensureTable();
-  const q = `%${query.trim()}%`;
+// Ranked search over the memory graph, using the same scoring as the local
+// recall.mjs (term frequency + title/tag weight; see lib/rank.ts). Pulls a
+// bounded candidate set and ranks in-process — the graph is small (a personal
+// brain), so this is both cheap and higher quality than a flat ILIKE order.
+// Returns RankedNote[] (a superset of MemoryNote — the extra score/snippet are
+// harmless to callers that only need MemoryNote fields, e.g. the CEO tool).
+export async function searchMemory(query: string, limit = 6): Promise<RankedNote[]> {
   try {
+    await ensureTable();
     const { rows } = await sql`
-      SELECT slug, title, kind, left(body, 600) AS body, links, tags, source, updated_at
+      SELECT slug, title, kind, left(body, 4000) AS body, links, tags, source, updated_at
       FROM ai_memory
-      WHERE title ILIKE ${q} OR body ILIKE ${q} OR ${query} = ANY(tags)
-      ORDER BY (title ILIKE ${q}) DESC, updated_at DESC
-      LIMIT ${limit}
+      LIMIT 5000
     `;
-    return rows.map(rowToNote);
+    return rankNotes(rows.map(rowToNote), query, limit);
   } catch {
     return [];
   }
