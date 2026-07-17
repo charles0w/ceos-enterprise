@@ -8,9 +8,10 @@ export const AGENTS: Agent[] = [
     ownerRepo: 'shopify-arbitrage + card-arbitrage',
     skills: ['sourcing', 'listing-gen', 'fulfillment'],
     schedule: 'hourly fulfillment loop',
-    // Grace 60 (not 30): the real loop drifts to 65–85 min between reports, and
-    // with transition-only alerting a tight budget would flap-page on every drift.
-    mode: 'scheduled', cadenceMinutes: 60, graceMinutes: 60,
+    // Grace 180: GitHub's */15 schedule is best-effort — measured gaps hit
+    // ~200 min nightly (6–9:30 PM PT). Tighten to ~60 once the Vercel
+    // dispatch-commerce cron (needs GH_DISPATCH_TOKEN) proves a steady 15-min tick.
+    mode: 'scheduled', cadenceMinutes: 60, graceMinutes: 180,
   },
   {
     id: 'finance',

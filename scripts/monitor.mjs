@@ -47,6 +47,24 @@ export function decideAlert(prevStatus, degraded) {
   return prevStatus === 'degraded' ? 'recover' : 'none';
 }
 
+/**
+ * Pure: suggested slash-commands for a degraded page, derived from what is
+ * actually wrong — one /run per stale agent, so the alert is answerable in
+ * place instead of just being bad news.
+ * @returns {string[]} lines to append to the page
+ */
+export function suggestActions(body) {
+  const stale = (body?.agents ?? []).filter((a) => a.stale).map((a) => a.agent);
+  const lines = [];
+  if (stale.length) {
+    lines.push(`→ act: ${stale.map((id) => `\`/run ${id}\``).join(' · ')} (queues a run-request; agent picks it up on next wake)`);
+    lines.push(`→ redirect: \`/direct ${stale[0]} <instruction>\` to change what it does first`);
+  } else {
+    lines.push('→ act: `/fleet` for a snapshot · `/run <agent>` / `/direct <agent> <instruction>` to steer');
+  }
+  return lines;
+}
+
 async function alert(webhook, text) {
   if (!webhook) {
     console.error('[alert-suppressed:no-webhook]', text);
@@ -119,7 +137,7 @@ async function main() {
       `🔴 **CEO's Enterprise DEGRADED** (state change — you'll get ONE recovery ping when it clears)`,
       ...problems.map((p) => `• ${p}`),
       `→ dashboard: ${new URL('/', HEALTH_URL).origin} · health: ${HEALTH_URL}`,
-      `→ act: reply here with /run <agent> or /direct <agent> <instruction>`,
+      ...suggestActions(body),
     ].join('\n'));
   } else if (action === 'recover') {
     await alert(WEBHOOK, `🟢 **CEO's Enterprise RECOVERED**${fmtDowntime(prev.since)} — all checks passing, ${(body.agents ?? []).length} agents on schedule.`);

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateHealth, decideAlert } from '../scripts/monitor.mjs';
+import { evaluateHealth, decideAlert, suggestActions } from '../scripts/monitor.mjs';
 import { selectStale } from '../scripts/runbook-restart-stale.mjs';
 
 const healthyBody = {
@@ -55,6 +55,21 @@ test('decideAlert: recovers only on degraded→healthy transition', () => {
   assert.equal(decideAlert('degraded', false), 'recover');
   assert.equal(decideAlert('healthy', false), 'none');
   assert.equal(decideAlert('unknown', false), 'none');
+});
+
+test('suggestActions: one /run per stale agent + a /direct hint', () => {
+  const lines = suggestActions({ agents: [
+    { agent: 'commerce', stale: true }, { agent: 'growth', stale: true }, { agent: 'finance', stale: false },
+  ] }).join('\n');
+  assert.match(lines, /\/run commerce/);
+  assert.match(lines, /\/run growth/);
+  assert.doesNotMatch(lines, /\/run finance/);
+  assert.match(lines, /\/direct commerce/);
+});
+
+test('suggestActions: generic steering line when nothing is stale', () => {
+  const lines = suggestActions({ agents: [] }).join('\n');
+  assert.match(lines, /\/fleet/);
 });
 
 test('selectStale: filters to stale agents only', () => {

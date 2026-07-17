@@ -62,5 +62,9 @@ export function formatRunBrief(
     const sign = profit.amount >= 0 ? '+' : '-';
     line += `\n  💰 ${sign}$${Math.abs(profit.amount).toFixed(2)}${profit.note ? ` · ${profit.note}` : ''}`;
   }
+  // A failed/degraded run should arrive with its own steering wheel attached.
+  if (status.state === 'error' || status.state === 'warn') {
+    line += `\n  ↩ \`/run ${agentId}\` to retry · \`/direct ${agentId} <instruction>\` to redirect`;
+  }
   return line;
 }
