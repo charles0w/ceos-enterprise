@@ -88,7 +88,16 @@ export async function POST(req: NextRequest) {
       await recordSuppressed(body.agentId, status.summary ?? '');
       suppressed = true;
     } else {
-      await notifyDiscord(formatRunBrief(body.agentId, status, body.profit));
+      // Failed/degraded runs carry one-tap buttons (Retry / Send direction);
+      // clicks land on /api/discord/interactions. Falls back to the textual
+      // ↩ hints if the bot channel isn't configured.
+      const actions = status.state === 'error' || status.state === 'warn'
+        ? [
+            { label: '▶ Retry now', customId: `run:${body.agentId}`, style: 1 },
+            { label: '✎ Send direction', customId: `direct:${body.agentId}` },
+          ]
+        : undefined;
+      await notifyDiscord(formatRunBrief(body.agentId, status, body.profit), actions);
     }
   }
 

@@ -7,24 +7,56 @@ import { AGENTS } from './agents';
 
 const WEBHOOK = () => process.env.ALERT_WEBHOOK_URL;
 
-export async function notifyDiscord(text: string): Promise<void> {
-  const url = WEBHOOK();
-  if (!url) return;
+// A clickable action attached to an alert. customId is what the interactions
+// endpoint receives on click — scheme: "run:<agentId>" | "direct:<agentId>".
+export type AlertAction = { label: string; customId: string; style?: number };
+
+function buttonRow(actions: AlertAction[]) {
+  return [{
+    type: 1, // action row
+    components: actions.slice(0, 5).map((a) => ({
+      type: 2, // button
+      style: a.style ?? 2, // secondary (grey) by default
+      label: a.label.slice(0, 80),
+      custom_id: a.customId.slice(0, 100),
+    })),
+  }];
+}
+
+async function postWithTimeout(url: string, headers: Record<string, string>, body: unknown): Promise<Response | null> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 3000);
   try {
-    await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      // { content } is Discord; { text } is Slack — send both so one webhook works either way.
-      body: JSON.stringify({ content: text.slice(0, 1900), text: text.slice(0, 1900) }),
-      signal: ctrl.signal,
-    });
+    return await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: ctrl.signal });
   } catch {
-    /* swallow — best effort */
+    return null;
   } finally {
     clearTimeout(t);
   }
+}
+
+export async function notifyDiscord(text: string, actions?: AlertAction[]): Promise<void> {
+  const content = text.slice(0, 1900);
+
+  // Buttons require an application-owned message — plain webhooks can't carry
+  // components. When the bot token + channel are configured and actions were
+  // requested, post via the bot API; on any failure fall through to the webhook
+  // (message still arrives, just without buttons — the textual ↩ hints remain).
+  const token = process.env.DISCORD_BOT_TOKEN;
+  const channel = process.env.DISCORD_CHANNEL_ID;
+  if (actions?.length && token && channel) {
+    const res = await postWithTimeout(
+      `https://discord.com/api/v10/channels/${channel}/messages`,
+      { Authorization: `Bot ${token}`, 'Content-Type': 'application/json' },
+      { content, components: buttonRow(actions) },
+    );
+    if (res?.ok) return;
+  }
+
+  const url = WEBHOOK();
+  if (!url) return;
+  // { content } is Discord; { text } is Slack — send both so one webhook works either way.
+  await postWithTimeout(url, { 'Content-Type': 'application/json' }, { content, text: content });
 }
 
 const STATE_EMOJI: Record<string, string> = { ok: '✅', warn: '⚠️', error: '🔴' };

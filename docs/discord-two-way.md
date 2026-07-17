@@ -38,6 +38,26 @@ answerable in place.
 5. **Add the app to your server**:
    `https://discord.com/oauth2/authorize?client_id=<APP_ID>&scope=applications.commands`
 
+## Buttons (one-tap Retry / Send direction)
+
+Warn/error run briefs carry buttons: **▶ Retry now** (queues a run-request) and
+**✎ Send direction** (opens a modal; the submitted text is queued as the task
+spec). Clicks arrive at the same interactions endpoint (`type 3` component /
+`type 5` modal submit, custom_id `run:<id>` / `direct:<id>` / `dmodal:<id>`).
+
+Buttons need an **application-owned message** — webhooks can't carry
+components — so `notifyDiscord` posts via the bot API when both are set:
+
+1. **Invite the bot user** (the `applications.commands`-only invite doesn't add
+   it): `https://discord.com/oauth2/authorize?client_id=<APP_ID>&scope=bot+applications.commands&permissions=2048`
+   (2048 = Send Messages).
+2. **`DISCORD_CHANNEL_ID`** env (Vercel + `.env.local`): right-click the
+   #notifs channel → Copy Channel ID (needs Developer Mode: User Settings →
+   Advanced → Developer Mode).
+
+Without either, everything degrades gracefully to webhook text with the
+typed-command hints.
+
 ## Notes
 
 - Auth is Discord's ed25519 request signature verified on the raw body — no

@@ -62,6 +62,48 @@ async function fleetSnapshot(): Promise<string> {
 
 type Option = { name: string; value?: string };
 
+// Shared by slash commands, buttons, and the direction modal: queue work for
+// an agent and phrase the confirmation.
+async function queueWork(agentId: string, kind: 'run' | 'direct', instruction: string, user: string): Promise<string> {
+  const agent = AGENTS.find((a) => a.id === agentId);
+  if (!agent) return `Unknown agent \`${agentId}\`. Valid: ${AGENTS.map((a) => a.id).join(', ')}`;
+  const spec = kind === 'direct' ? instruction.slice(0, 500) : 'on-demand run requested';
+  const task = await enqueueTask(agentId, {
+    title: kind === 'direct' ? spec.slice(0, 80) : 'Run requested',
+    spec,
+    createdBy: `discord:${user}`,
+    dedupe: kind === 'run',
+  });
+  await logEvent(agentId, 'info', `${kind === 'direct' ? 'direction' : 'run request'} from Discord (${user}) → task #${task.id}`);
+  return kind === 'direct'
+    ? `📨 Queued for **${agent.name}** (task #${task.id}): “${spec}” — it picks this up on its next wake.`
+    : `▶️ Run requested for **${agent.name}** (task #${task.id}) — queued until its next wake/poll.`;
+}
+
+// Modal shown when a "✎ Send direction" button is clicked; the submitted text
+// arrives back as a MODAL_SUBMIT interaction with custom_id "dmodal:<agentId>".
+function directionModal(agentId: string, agentName: string) {
+  return NextResponse.json({
+    type: 9, // MODAL
+    data: {
+      custom_id: `dmodal:${agentId}`,
+      title: `Direct ${agentName}`.slice(0, 45),
+      components: [{
+        type: 1,
+        components: [{
+          type: 4, // text input
+          custom_id: 'instruction',
+          label: 'What should it do?',
+          style: 2, // paragraph
+          min_length: 1,
+          max_length: 500,
+          required: true,
+        }],
+      }],
+    },
+  });
+}
+
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
   if (!verifySignature(req, rawBody)) {
@@ -73,38 +115,50 @@ export async function POST(req: NextRequest) {
   // PING — Discord's endpoint validation handshake.
   if (interaction.type === 1) return NextResponse.json({ type: 1 });
 
-  if (interaction.type !== 2) return reply('Unsupported interaction type.');
-
-  const command: string = interaction.data?.name ?? '';
-  const options: Option[] = interaction.data?.options ?? [];
-  const opt = (name: string) => options.find((o) => o.name === name)?.value?.toString() ?? '';
   const user = interaction.member?.user?.username ?? interaction.user?.username ?? 'discord';
 
   try {
+    // Button click (MESSAGE_COMPONENT) — custom_id "run:<agentId>" | "direct:<agentId>".
+    if (interaction.type === 3) {
+      const cid: string = interaction.data?.custom_id ?? '';
+      const [action, agentId] = cid.split(':');
+      if (action === 'run') return reply(await queueWork(agentId, 'run', '', user));
+      if (action === 'direct') {
+        const agent = AGENTS.find((a) => a.id === agentId);
+        if (!agent) return reply(`Unknown agent \`${agentId}\`.`);
+        return directionModal(agentId, agent.name);
+      }
+      return reply(`Unknown action \`${cid}\`.`);
+    }
+
+    // Modal submit — the free-text direction from a "✎ Send direction" button.
+    if (interaction.type === 5) {
+      const cid: string = interaction.data?.custom_id ?? '';
+      if (cid.startsWith('dmodal:')) {
+        const agentId = cid.slice('dmodal:'.length);
+        const instruction: string =
+          interaction.data?.components?.[0]?.components?.[0]?.value?.toString().trim() ?? '';
+        if (!instruction) return reply('Empty instruction — nothing queued.');
+        return reply(await queueWork(agentId, 'direct', instruction, user));
+      }
+      return reply(`Unknown modal \`${cid}\`.`);
+    }
+
+    if (interaction.type !== 2) return reply('Unsupported interaction type.');
+
+    const command: string = interaction.data?.name ?? '';
+    const options: Option[] = interaction.data?.options ?? [];
+    const opt = (name: string) => options.find((o) => o.name === name)?.value?.toString() ?? '';
+
     if (command === 'fleet') {
       return reply(await fleetSnapshot());
     }
 
     if (command === 'run' || command === 'direct') {
       const agentId = opt('agent');
-      const agent = AGENTS.find((a) => a.id === agentId);
-      if (!agent) return reply(`Unknown agent \`${agentId}\`. Valid: ${AGENTS.map((a) => a.id).join(', ')}`);
-
-      const instruction = command === 'direct' ? opt('instruction').slice(0, 500) : 'on-demand run requested';
+      const instruction = opt('instruction').trim();
       if (command === 'direct' && !instruction) return reply('Give me an instruction, e.g. `/direct agent:commerce instruction:research 5 new products`.');
-
-      const task = await enqueueTask(agentId, {
-        title: command === 'direct' ? instruction.slice(0, 80) : 'Run requested',
-        spec: instruction,
-        createdBy: `discord:${user}`,
-        dedupe: command === 'run',
-      });
-      await logEvent(agentId, 'info', `${command === 'direct' ? 'direction' : 'run request'} from Discord (${user}) → task #${task.id}`);
-      return reply(
-        command === 'direct'
-          ? `📨 Queued for **${agent.name}** (task #${task.id}): “${instruction}” — it picks this up on its next wake.`
-          : `▶️ Run requested for **${agent.name}** (task #${task.id}) — queued until its next wake/poll.`,
-      );
+      return reply(await queueWork(agentId, command, instruction, user));
     }
 
     return reply(`Unknown command \`/${command}\`.`);
