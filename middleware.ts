@@ -16,6 +16,8 @@ const PUBLIC_PREFIXES = [
   '/api/brain/ingest', // vault→DB policy push — authenticates with x-report-secret
   '/api/cron',       // Vercel Cron authenticates with CRON_SECRET, not a session cookie
   '/api/health',     // liveness/readiness probe — public so uptime monitors can reach it
+  '/api/monitor',    // monitor state (GET public, PUT enforces x-report-secret in the route)
+  '/api/discord',    // Discord interactions — route enforces ed25519 signature verification
   '/api/metrics',    // Prometheus exposition — public reachability; route enforces optional METRICS_TOKEN
   '/api/agents/',    // subpaths only (e.g. {id}/run) — route enforces x-report-secret/session; bare /api/agents stays gated
   '/_next',

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateHealth } from '../scripts/monitor.mjs';
+import { evaluateHealth, decideAlert } from '../scripts/monitor.mjs';
 import { selectStale } from '../scripts/runbook-restart-stale.mjs';
 
 const healthyBody = {
@@ -37,6 +37,24 @@ test('evaluateHealth: stale agent + failed check are both reported', () => {
   const joined = r.problems.join(' ');
   assert.match(joined, /stale agents: jobs\(47m\)/);
   assert.match(joined, /failed checks: fleet/);
+});
+
+test('evaluateHealth: never-run agent prints "never ran", not nullm', () => {
+  const body = { status: 'degraded', checks: [], agents: [{ agent: 'finance', ageMinutes: null, stale: true }] };
+  const r = evaluateHealth({ httpStatus: 503, body, latencyMs: 100, budgetMs: 2000 });
+  assert.match(r.problems.join(' '), /finance\(never ran\)/);
+});
+
+test('decideAlert: pages only on healthy→degraded transition', () => {
+  assert.equal(decideAlert('healthy', true), 'page');
+  assert.equal(decideAlert('unknown', true), 'page');
+  assert.equal(decideAlert('degraded', true), 'none');   // already alerted — stay quiet
+});
+
+test('decideAlert: recovers only on degraded→healthy transition', () => {
+  assert.equal(decideAlert('degraded', false), 'recover');
+  assert.equal(decideAlert('healthy', false), 'none');
+  assert.equal(decideAlert('unknown', false), 'none');
 });
 
 test('selectStale: filters to stale agents only', () => {

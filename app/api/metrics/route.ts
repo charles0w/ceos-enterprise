@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { promBlock } from '@/lib/health';
 
 // Prometheus-compatible metrics for the fleet, sourced from the real tables:
-// fleet_events (runs / errors in 24h) and agent_status (heartbeat age).
+// fleet_events (runs / errors in 24h) and fleet_agent_status (heartbeat age).
 // Scrape at /api/metrics. Optionally gated by METRICS_TOKEN (Bearer).
 
 export const dynamic = 'force-dynamic';
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
         WHERE created_at > now() - interval '24 hours'
         GROUP BY agent_id
       `,
-      sql`SELECT id, EXTRACT(EPOCH FROM (now() - last_run)) AS heartbeat_age_s FROM agent_status`,
+      sql`SELECT id, EXTRACT(EPOCH FROM (now() - last_run)) AS heartbeat_age_s FROM fleet_agent_status`,
     ]);
 
     const runs = events.rows.map((r) => `ceos_agent_runs_total{agent="${r.agent_id}"} ${r.runs}`);

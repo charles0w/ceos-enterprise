@@ -45,7 +45,7 @@ async function loadFleet(): Promise<{ check: Check; agents: unknown[] }> {
   const [rows, , err] = await timed(async () => {
     const { rows } = await sql`
       SELECT s.id, s.last_run, s.ok, COALESCE(e.errors, 0) AS recent_errors
-      FROM agent_status s
+      FROM fleet_agent_status s
       LEFT JOIN (
         SELECT agent_id, COUNT(*) AS errors
         FROM fleet_events

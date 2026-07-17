@@ -1,7 +1,9 @@
 name: Uptime & Fleet Monitor
 
 # Scheduled synthetic monitoring: polls the live /api/health endpoint every 10 min,
-# checks for stale agents, and pages Discord on failure. This is the "on-call" loop.
+# checks for stale agents, and pages Discord on STATE TRANSITIONS only (one page
+# on degrade, one note on recovery — state kept in /api/monitor/state). This is
+# the "on-call" loop.
 on:
   schedule:
     - cron: "*/10 * * * *"
@@ -19,5 +21,6 @@ jobs:
         env:
           HEALTH_URL: ${{ secrets.HEALTH_URL }}            # e.g. https://ceos-enterprise.vercel.app/api/health
           ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }} # Discord/Slack webhook
+          REPORT_SECRET: ${{ secrets.REPORT_SECRET }}         # persists last status so alerts fire on transitions only
           LATENCY_BUDGET_MS: "2000"
         run: node scripts/monitor.mjs
