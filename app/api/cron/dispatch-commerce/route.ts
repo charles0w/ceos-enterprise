@@ -15,6 +15,7 @@ export const runtime = 'nodejs';
 // cron remains the only trigger).
 const REPO = 'charles0w/shopify-arbitrage';
 const WORKFLOW = 'fulfillment.yml';
+const REF = 'master'; // shopify-arbitrage's default branch (NOT main — dispatch 422s on a wrong ref)
 
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest) {
         Accept: 'application/vnd.github+json',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ ref: 'main' }),
+      body: JSON.stringify({ ref: REF }),
     });
     // GitHub returns 204 No Content on a successful dispatch.
     if (res.status !== 204) {
