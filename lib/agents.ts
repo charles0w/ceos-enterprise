@@ -27,8 +27,9 @@ export const AGENTS: Agent[] = [
     role: 'Discord-alert options copy-trading (paper)',
     ownerRepo: 'lambos-trader',
     skills: ['discord-ingest', 'ocr-parse', 'risk-sizing', 'paper-exec'],
-    schedule: 'daily paper + evals → live Aug 20',
-    mode: 'scheduled', cadenceMinutes: 1440, graceMinutes: 360,
+    schedule: 'paused — paper trial not started (flip to scheduled when it runs)',
+    // On-demand while parked: health should flag broken expectations, not deliberate pauses.
+    mode: 'on-demand',
   },
   {
     id: 'growth',
@@ -54,8 +55,8 @@ export const AGENTS: Agent[] = [
     role: 'Manages social accounts, posting, trend scouting',
     ownerRepo: 'instagram-trend-desk',
     skills: ['content', 'scheduling', 'trend-analysis'],
-    schedule: 'daily 9am PT',
-    mode: 'scheduled', cadenceMinutes: 1440, graceMinutes: 240,
+    schedule: 'on-demand — brief loop idle since 6/21 (set weekly cadence 10080 when it restarts)',
+    mode: 'on-demand',
   },
   {
     id: 'hobbies',
@@ -72,8 +73,8 @@ export const AGENTS: Agent[] = [
     role: 'Coursework, deadlines, tutoring (vault-aware)',
     ownerRepo: 'obi-secondbrain (vault: school/fall-2026)',
     skills: ['calendar', 'study', 'vault', 'tutoring'],
-    schedule: 'daily deadline scan 8am PT',
-    mode: 'scheduled', cadenceMinutes: 1440, graceMinutes: 240,
+    schedule: 'summer break — flip to scheduled daily when Fall 2026 starts (~late Aug)',
+    mode: 'on-demand',
   },
 ];
 
