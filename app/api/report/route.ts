@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { upsertStatus } from '@/lib/registry';
+import { upsertStatus, getStatus } from '@/lib/registry';
+import { isQuietRepeat, recordSuppressed } from '@/lib/digest';
 import { recordProfit } from '@/lib/garage';
 import { logEvent } from '@/lib/events';
 import { notifyDiscord, formatRunBrief } from '@/lib/notify';
@@ -55,6 +56,9 @@ export async function POST(req: NextRequest) {
   }
 
   const status = sanitizeStatus(body.status);
+  // Snapshot the previous status BEFORE overwriting — it decides whether this
+  // run is news (post realtime) or a quiet repeat (count into the daily digest).
+  const prev = await getStatus(body.agentId);
   await upsertStatus(body.agentId, status);
   await logEvent(
     body.agentId,
@@ -76,9 +80,21 @@ export async function POST(req: NextRequest) {
   }
 
   // Post a run brief to #notifs (best-effort). Disable with NOTIFY_ON_REPORT=0.
+  // Zero-delta repeats (ok state, no profit, summary+metrics unchanged) are
+  // demoted to the daily digest cron instead of pinging in realtime.
+  let suppressed = false;
   if (process.env.NOTIFY_ON_REPORT !== '0') {
-    await notifyDiscord(formatRunBrief(body.agentId, status, body.profit));
+    if (isQuietRepeat(prev, status, body.profit)) {
+      await recordSuppressed(body.agentId, status.summary ?? '');
+      suppressed = true;
+    } else {
+      await notifyDiscord(formatRunBrief(body.agentId, status, body.profit));
+    }
   }
 
-  return NextResponse.json({ ok: true, ...(profitRecorded ? { profitRecorded } : {}) });
+  return NextResponse.json({
+    ok: true,
+    ...(profitRecorded ? { profitRecorded } : {}),
+    ...(suppressed ? { notified: 'digest' } : {}),
+  });
 }

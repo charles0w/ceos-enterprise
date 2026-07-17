@@ -101,6 +101,26 @@ async function getAllStatuses(): Promise<Record<string, AgentStatus>> {
   }
 }
 
+// Single-agent read of the LAST stored status (used by /api/report to detect
+// zero-delta repeats before overwriting). Same fallback order as reads above.
+export async function getStatus(agentId: string): Promise<AgentStatus | null> {
+  try {
+    const { rows } = await sql`SELECT * FROM fleet_agent_status WHERE id = ${agentId}`;
+    const r = rows[0];
+    if (!r) return null;
+    return {
+      state: r.state,
+      lastRun: r.last_run,
+      summary: r.summary,
+      ok: r.ok,
+      metrics: r.metrics ?? undefined,
+      progress: r.progress ?? undefined,
+    } as AgentStatus;
+  } catch {
+    return (await kv.get<AgentStatus>(`${KV_PREFIX}${agentId}`).catch(() => null)) ?? null;
+  }
+}
+
 // Mirror the run into the external CEO-orchestrator schema (`agents` + `runs`,
 // which its `agent_status` view reads) so both worlds stay fresh. Best-effort:
 // that schema is not ours, so a failure here never blocks the primary write.
