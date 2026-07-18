@@ -19,7 +19,7 @@ const PUBLIC_PREFIXES = [
   '/api/monitor',    // monitor state (GET public, PUT enforces x-report-secret in the route)
   '/api/discord',    // Discord interactions — route enforces ed25519 signature verification
   '/api/metrics',    // Prometheus exposition — public reachability; route enforces optional METRICS_TOKEN
-  '/api/agents/',    // subpaths only (e.g. {id}/run) — route enforces x-report-secret/session; bare /api/agents stays gated
+  '/api/agents',     // bare route + subpaths (e.g. {id}/run) — each route enforces dual-auth (x-report-secret or fleet_session) itself
   '/_next',
   '/favicon',
   '/icon',      // app icon (also used on the public login screen)
