@@ -19,8 +19,11 @@ export const AGENTS: Agent[] = [
     role: 'Portfolios, EOD recaps, investment research',
     ownerRepo: 'ai-trading-bot',
     skills: ['markets', 'research', 'reporting'],
-    schedule: 'EOD recap 4pm PT',
-    mode: 'scheduled', cadenceMinutes: 1440, graceMinutes: 240,
+    schedule: 'EOD recap 4pm PT (weekdays — markets closed Sat/Sun)',
+    // Grace covers the weekend gap (Fri 4pm → Mon 4pm ≈ 4320m): without it,
+    // finance goes "overdue" every Saturday and pages a phantom degrade/recover
+    // pair. A genuine weekday failure still surfaces within ~a day.
+    mode: 'scheduled', cadenceMinutes: 1440, graceMinutes: 4320,
   },
   {
     id: 'lambos-trader',
