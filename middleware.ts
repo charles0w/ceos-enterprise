@@ -42,6 +42,17 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // Logged-out visitors to the root land on the public demo instead of a
+  // login wall (the FDE-portfolio showcase); every other gated path still
+  // goes to /login with a return target. No loop risk: /demo is allowlisted
+  // and short-circuits above.
+  if (pathname === '/') {
+    const url = req.nextUrl.clone();
+    url.pathname = '/demo';
+    url.search = ''; // no ?next=/ — demo isn't a login flow
+    return NextResponse.redirect(url);
+  }
+
   // Redirect to login, preserving intended destination
   const url = req.nextUrl.clone();
   url.pathname = '/login';

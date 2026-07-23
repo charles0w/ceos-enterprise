@@ -19,9 +19,10 @@ export const NAV_TABS = [
 // Public demo only exposes the two surfaces that work without live data /
 // the auth gate. Everything else stays behind the login wall.
 export const DEMO_NAV_TABS = [
-  { label: 'Fleet',       href: '/demo' },
-  { label: 'Ask the CEO', href: '/demo/ceo', isNew: true },
-  { label: 'Portfolio',   href: '/portfolio' },
+  { label: 'Fleet',         href: '/demo' },
+  { label: 'Ask the CEO',   href: '/demo/ceo', isNew: true },
+  { label: 'Portfolio',     href: '/portfolio' },
+  { label: 'Owner sign-in', href: '/login' },
 ] as const;
 
 export function Nav({ active, demo = false }: { active: string; demo?: boolean }) {
