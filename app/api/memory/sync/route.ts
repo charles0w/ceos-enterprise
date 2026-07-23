@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@vercel/postgres';
+import { kv } from '@vercel/kv';
 import { upsertMemory, type MemoryNote } from '@/lib/aiMemory';
+import { LAST_SYNC_KEY } from '@/lib/contextAge';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,6 +42,13 @@ export async function POST(req: NextRequest) {
     });
     upserted++;
   }
+  // Freshness stamp for the dashboard chip + digest warning. Any authed POST
+  // means the sync pipeline ran (sync-db.mjs pushes the whole tree each time),
+  // so stamp even when upserted === 0. Best-effort: KV being down must never
+  // fail the sync itself.
+  await kv
+    .set(LAST_SYNC_KEY, { at: new Date().toISOString(), notes: upserted })
+    .catch(() => {});
   return NextResponse.json({ ok: true, upserted });
 }
 

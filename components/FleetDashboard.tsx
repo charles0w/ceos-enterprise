@@ -12,6 +12,7 @@ import type { JobStats } from '@/lib/jobs';
 import type { GarageData } from '@/lib/garage';
 import type { FleetTask } from '@/lib/fleetTasks';
 import type { EventFeed } from '@/lib/events';
+import { contextAge } from '@/lib/contextAge';
 import {
   CHROME_GRAD, StatusDot, ChromeIcon, GlyphTile, Sparkline, ProgressBar,
   Kpi, PanelHead, useClock, useCountUp, useRotator, fmtMoney, fmtNum, greetingFor,
@@ -110,7 +111,21 @@ function qColor(v: number): string {
 }
 
 // ── header ────────────────────────────────────────────────────
-function Header({ online, needEye }: { online: number; needEye: number }) {
+function ContextChip({ at }: { at: string | null }) {
+  if (!at) return null; // no stamp yet (or demo) — say nothing rather than guess
+  const age = contextAge(at, Date.now());
+  if (age.level === 'unknown' || age.hours == null) return null;
+  const color = age.level === 'critical' ? 'var(--err)' : age.level === 'stale' ? 'var(--gold)' : 'var(--txt-dim)';
+  const label = age.hours < 1 ? '<1h' : age.hours < 48 ? `${Math.round(age.hours)}h` : `${Math.round(age.hours / 24)}d`;
+  return (
+    <div className="mono" title={`ai-memory vault mirror last synced ${at}`}
+      style={{ fontSize: 11, color, marginTop: 6, letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>
+      CTX {label}
+    </div>
+  );
+}
+
+function Header({ online, needEye, lastSync }: { online: number; needEye: number; lastSync: string | null }) {
   const now = useClock();
   const h = now.getHours();
   const hh = ((h % 12) || 12);
@@ -151,6 +166,7 @@ function Header({ online, needEye }: { online: number; needEye: number }) {
           <StatusDot color="#3fe08f" pulse size={7} />
           <span className="label" style={{ color: 'var(--silver)' }}>all systems live</span>
         </div>
+        <ContextChip at={lastSync} />
       </div>
     </header>
   );
@@ -940,10 +956,11 @@ export function FleetDashboard({ initial, growthStats, jobStats, garage, initial
   const [tasks, setTasks] = useState(initialTasks);
   const [feed, setFeed] = useState(initialEvents);
   const [trends, setTrends] = useState<Record<string, { points: number[]; delta: number | null }>>({});
+  const [lastSync, setLastSync] = useState<string | null>(null);
 
   useEffect(() => {
     if (demo) return; // public demo runs on a static snapshot — no gated polling
-    const id = setInterval(async () => {
+    const tick = async () => {
       try {
         const res = await fetch('/api/agents');
         if (res.ok) setFleet(await res.json());
@@ -956,7 +973,14 @@ export function FleetDashboard({ initial, growthStats, jobStats, garage, initial
         const res = await fetch('/api/events');
         if (res.ok) setFeed(await res.json());
       } catch { /* transient — next tick retries */ }
-    }, REFRESH_MS);
+      try {
+        const res = await fetch('/api/memory/last-sync');
+        if (res.ok) setLastSync((await res.json()).at ?? null);
+      } catch { /* transient — next tick retries */ }
+    };
+    // last-sync has no server-provided initial value, so run once immediately
+    tick();
+    const id = setInterval(tick, REFRESH_MS);
     return () => clearInterval(id);
   }, []);
 
@@ -987,7 +1011,7 @@ export function FleetDashboard({ initial, growthStats, jobStats, garage, initial
 
   return (
     <div className="page" style={{ maxWidth: 1320, margin: '0 auto' }}>
-      <Header online={online} needEye={needEye} />
+      <Header online={online} needEye={needEye} lastSync={lastSync} />
       <Nav active="Fleet" demo={demo} />
       <Hero fleet={fleet} feed={feed} />
       <VizStrip growthStats={growthStats} garage={garage} feed={feed} />
