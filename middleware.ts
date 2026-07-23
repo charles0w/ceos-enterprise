@@ -20,6 +20,7 @@ const PUBLIC_PREFIXES = [
   '/api/discord',    // Discord interactions — route enforces ed25519 signature verification
   '/api/metrics',    // Prometheus exposition — public reachability; route enforces optional METRICS_TOKEN
   '/api/agents',     // bare route + subpaths (e.g. {id}/run) — each route enforces dual-auth (x-report-secret or fleet_session) itself
+  '/api/events',     // dual-auth inside the route (x-report-secret or fleet_session) — Mission Control pulls the system log with the secret
   '/_next',
   '/favicon',
   '/icon',      // app icon (also used on the public login screen)

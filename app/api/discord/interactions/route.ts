@@ -4,12 +4,15 @@ import { AGENTS } from '@/lib/agents';
 import { getFleet } from '@/lib/registry';
 import { enqueueTask } from '@/lib/fleetTasks';
 import { logEvent } from '@/lib/events';
+import { buildCaptureNote } from '@/lib/capture';
+import { pushVaultFile } from '@/lib/vaultGit';
 
 // Discord Interactions endpoint — the two-way half of the #notifs channel.
 // Slash commands let a Discord reply become direction for the fleet:
 //   /fleet                       → live status snapshot
 //   /run    agent:<id>           → queue a run-request (same path as the dashboard Run button)
 //   /direct agent:<id> instruction:<text> → queue a CEO task with your instruction as the spec
+//   /capture text:<thought>      → commit a note into the vault's inbox/ (phone → Obsidian)
 //
 // Auth is Discord's ed25519 request signature (DISCORD_PUBLIC_KEY), verified on
 // the raw body per their spec — no session, no report secret. Register the
@@ -159,6 +162,23 @@ export async function POST(req: NextRequest) {
       const instruction = opt('instruction').trim();
       if (command === 'direct' && !instruction) return reply('Give me an instruction, e.g. `/direct agent:commerce instruction:research 5 new products`.');
       return reply(await queueWork(agentId, command, instruction, user));
+    }
+
+    // Phone → vault inbox. Commits a fresh file into the vault repo via the
+    // Contents API (same path CEO-authored memories take); obsidian-git pulls
+    // it onto the Mac, where process-inbox triages it like any inbox note.
+    if (command === 'capture') {
+      const text = opt('text').trim();
+      if (!text) return reply('Nothing to capture — give me some text.');
+      const note = buildCaptureNote(text, user, new Date());
+      const res = await pushVaultFile(note.path, note.content, note.commitMessage);
+      await logEvent('ceo', 'info', `capture: ${text.slice(0, 80)}`);
+      // On failure (e.g. GITHUB_TOKEN missing) echo the text back — the
+      // thought stays preserved in the Discord message itself. No DB
+      // fallback: don't create a second place captures can hide.
+      return reply(res.ok
+        ? `📥 Captured to vault inbox (\`${note.path}\`).`
+        : `⚠️ Capture failed (${res.error}) — your text is safe in this message:\n> ${text.slice(0, 500)}`);
     }
 
     return reply(`Unknown command \`/${command}\`.`);

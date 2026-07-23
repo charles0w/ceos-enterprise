@@ -1,22 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getRecentTasks, updateTaskStatus, TASK_STATUSES, type TaskStatus } from '@/lib/fleetTasks';
 import { logEvent } from '@/lib/events';
+import { authorized } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
 // The delegation queue, readable by two audiences (middleware lets this
-// route through; auth happens here):
+// route through; auth happens here, via the shared dual-auth in lib/auth.ts):
 //   - the dashboard (fleet_session cookie) — renders the Delegations panel
 //   - fleet agents (x-report-secret header) — poll their queue and report
 //     progress: GET /api/tasks?agentId=growth&status=queued, then
 //     PATCH { id, status: "in_progress" | "done" | "dropped" }
-function authorized(req: NextRequest): boolean {
-  const secret = req.headers.get('x-report-secret');
-  if (secret && process.env.REPORT_SECRET && secret === process.env.REPORT_SECRET) return true;
-  const session = req.cookies.get('fleet_session')?.value;
-  const expected = process.env.FLEET_PASSWORD ?? '';
-  return !!expected && session === expected;
-}
 
 export async function GET(req: NextRequest) {
   if (!authorized(req)) {

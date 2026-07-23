@@ -55,6 +55,19 @@ const commands = [
       },
     ],
   },
+  {
+    name: 'capture',
+    description: 'Capture a thought straight into the vault inbox (phone → Obsidian)',
+    type: 1,
+    options: [
+      {
+        type: 3,
+        name: 'text',
+        description: 'The thought to capture',
+        required: true,
+      },
+    ],
+  },
 ];
 
 const url = GUILD
